@@ -2,16 +2,15 @@ package uz.imaan.jobplatform.admin.service;
 
 import org.springframework.stereotype.Service;
 import uz.imaan.jobplatform.admin.TelegramBotService;
-import uz.imaan.jobplatform.admin.repository.JobApplicationRepositoryForAdmin;
-import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
-import uz.imaan.jobplatform.employer.job.JobVacancy;
+import uz.imaan.jobplatform.jobseeker.repository.JobApplicationRepository;
+
 @Service
 public class ApplicationService {
 
-    private final JobApplicationRepositoryForAdmin applicationRepository;
+    private final JobApplicationRepository applicationRepository;
     private final TelegramBotService adminBotService;
 
-    public ApplicationService(JobApplicationRepositoryForAdmin applicationRepository,
+    public ApplicationService(JobApplicationRepository applicationRepository,
                               TelegramBotService adminBotService) {
         this.applicationRepository = applicationRepository;
         this.adminBotService = adminBotService;

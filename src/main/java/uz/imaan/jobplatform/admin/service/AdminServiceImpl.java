@@ -1,4 +1,3 @@
-/*
 package uz.imaan.jobplatform.admin.service;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -7,7 +6,7 @@ import org.springframework.stereotype.Service;
 import uz.imaan.jobplatform.admin.TelegramBotService;
 import uz.imaan.jobplatform.admin.mapper.AdminMapper;
 import uz.imaan.jobplatform.admin.repository.AdminRepository;
-import uz.imaan.jobplatform.employer.entity.Employer;
+import uz.imaan.jobplatform.employer.entity.EmployerEntity;
 import uz.imaan.jobplatform.employer.repository.EmployerRepository;
 import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
@@ -16,7 +15,7 @@ import java.util.List;
 
 @Service
 public class AdminServiceImpl extends AdminService {
-
+JobSeekerProfileRepository jobSeekerProfileRepository;
     @Value("${telegram.bot.admin-ids:}")
     private List<Long> adminIds;
 
@@ -34,34 +33,40 @@ public class AdminServiceImpl extends AdminService {
         return (adminIds != null && adminIds.contains(chatId)) || super.isAdmin(chatId);
     }
 
-    public String getFormattedJobSeekersList() {
-        List<JobSeekerProfile> list = jobSeekerProfileRepository.findAll();
-        if (list.isEmpty()) return "👷 Рабочие не найдены.";
+    public String getAllWorkersList() {
+        // FIXED: Invoked via instance variable 'jobSeekerProfileRepository' instead of static call
+        List<JobSeekerProfile> workers = jobSeekerProfileRepository.findAll();
+        if (workers.isEmpty()) {
+            return "👷 Список рабочих пуст.";
+        }
 
         StringBuilder sb = new StringBuilder("👷 *Список всех рабочих (соискателей):*\n\n");
-        int count = 1;
-        for (JobSeekerProfile profile : list) {
-            Long tgId = profile.getUserId() != null ? profile.getUserId() : profile.getId();
-            sb.append(count++).append(". ")
-                    .append(profile.getFullName() != null ? profile.getFullName() : "Без имени")
-                    .append(" | 🆔 `").append(tgId).append("`")
-                    .append(" | 📞 ").append(profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "—")
+        int index = 1;
+        for (JobSeekerProfile worker : workers) {
+            sb.append(index++)
+                    .append(". ")
+                    .append(worker.getFullName() != null ? worker.getFullName() : "Без имени")
+                    .append(" | ID: `")
+                    .append(worker.getId() != null ? worker.getId() : worker.getId()) // FIXED: Prefers TgId
+                    .append("` | 📞 ")
+                    .append(worker.getPhoneNumber() != null ? worker.getPhoneNumber() : "—")
                     .append("\n");
         }
         return sb.toString();
     }
 
     public String getFormattedEmployersList() {
-        List<Employer> list = employerRepository.findAll();
+        List<EmployerEntity> list = EmployerRepository.findByTgId(getStats().userId());
         if (list.isEmpty()) return "🏢 Работодатели не найдены.";
 
         StringBuilder sb = new StringBuilder("🏢 *Список всех работодателей:*\n\n");
         int count = 1;
-        for (Employer emp : list) {
-            Long tgId = emp.getUserId() != null ? emp.getUserId() : emp.getId();
+        for (EmployerEntity emp : list) {
+            Long tgId = emp.getId() != null ? emp.getId() : emp.getId();
             sb.append(count++).append(". ")
-                    .append("Yosh: ").append(emp.getAge()).append(", Pasport: ").append(emp.getPassport() != null ? emp.getPassport() : "—")
-                    .append(" | 🆔 `").append(tgId).append("`")
+                    .append("Возраст: ").append(emp.getPassportSeriesNumber() != null ? emp.getPassportSeriesNumber() : "—")
+                    .append(", Pasport: ").append(emp.getPassportSeriesNumber() != null ? emp.getPassportSeriesNumber() : "—")
+                    .append(" | ID: `").append(tgId).append("`")
                     .append(" | 📞 ").append(emp.getPhoneNumber() != null ? emp.getPhoneNumber() : "—")
                     .append("\n");
         }
@@ -71,8 +76,8 @@ public class AdminServiceImpl extends AdminService {
     public String getUserInfoByTgId(Long targetTgId) {
         if (targetTgId == null) return "⚠️ Введите корректный ID.";
 
-        JobSeekerProfile worker = jobSeekerProfileRepository.findByTgId(targetTgId).orElse(null);
-        Employer employer = employerRepository.findByTgId(targetTgId).orElse(null);
+        JobSeekerProfile worker = JobSeekerProfileRepository.findByTgId(targetTgId).orElse(null);
+        EmployerEntity employer = EmployerRepository.findByTgId(targetTgId).remove(Math.toIntExact(targetTgId));
 
         if (worker == null && employer == null) {
             return "❌ Пользователь с ID `" + targetTgId + "` не найден в базе данных.";
@@ -90,11 +95,11 @@ public class AdminServiceImpl extends AdminService {
 
         if (employer != null) {
             info.append("🏢 *Роль:* Работодатель\n");
-            info.append("📄 *Паспорт:* ").append(employer.getPassport() != null ? employer.getPassport() : "Не указан").append("\n");
-            info.append("🎂 *Возраст:* ").append(employer.getAge()).append("\n");
+            info.append("📄 *Паспорт:* ").append(employer.getPassportSeriesNumber() != null ? employer.getPassportSeriesNumber() : "Не указан").append("\n");
+            info.append("🎂 *Возраст:* ").append(employer.getPassportSeriesNumber() != null ? employer.getPassportSeriesNumber() : "Не указан").append("\n");
             info.append("📞 *Телефон:* ").append(employer.getPhoneNumber() != null ? employer.getPhoneNumber() : "Не указан").append("\n");
         }
 
         return info.toString();
     }
-}*/
+}
