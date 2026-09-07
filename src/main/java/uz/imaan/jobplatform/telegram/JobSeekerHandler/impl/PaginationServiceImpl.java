@@ -163,7 +163,8 @@ public class PaginationServiceImpl implements PaginationService {
                 result.append(globalIndex++).append(". 📌 **").append(vacancy.getTitle()).append("**\n");
                 result.append("   📂 Kategoriya: ").append(vacancy.getCategory()).append("\n");
                 result.append("   💰 Maosh: ").append(vacancy.getSalary()).append("\n");
-                result.append("   🏢 Kompaniya: ").append(vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan").append("\n");
+                result.append("   🏢 Kompaniya: ").append(vacancy.getCompanyName() != null ? vacancy.getCompanyName() :
+                        "Ko'rsatilmagan").append("\n");
                 result.append("───────────────\n");
             }
 

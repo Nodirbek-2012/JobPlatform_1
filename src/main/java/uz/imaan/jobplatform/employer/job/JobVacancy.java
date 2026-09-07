@@ -28,4 +28,5 @@ public class JobVacancy {
     private String requirements;
     private String phoneNumber;
     private Boolean isActive;
+    private String companyName;
 }
