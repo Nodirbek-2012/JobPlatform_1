@@ -23,6 +23,7 @@ import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
 import uz.imaan.jobplatform.jobseeker.repository.JobApplicationRepository;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.JobSeekerHandler;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,7 +55,7 @@ public class Telegram extends TelegramLongPollingBot {
             JobStore jobStore,
             JobSeekerProfileRepository jobSeekerProfileRepository,
             JobApplicationRepository jobApplicationRepository,
-            @Value("8449248126:AAFPgTpsBD2o1k_cp8YbG8_wqp9o8KnRCss") String botToken) {
+            @Value("${telegram.bot.token}") String botToken) {
         super(botToken);
         this.jobSeekerHandler = jobSeekerHandler;
         this.employerHandler = employerHandler;
@@ -145,84 +146,15 @@ public class Telegram extends TelegramLongPollingBot {
                     return;
                 }
 
+
+                // ✅ YANGILANGAN QISM – PAGINATION ISHLATILADI
                 if (callbackData.startsWith("category_")) {
-                    String categoryKey = callbackData.replace("category_", "");
-                    String categoryName = getCategoryName(categoryKey);
-
-                    List<JobVacancy> allVacancies = jobStore.getAllVacancies();
-                    List<JobVacancy> vacancies;
-                    if (categoryKey.equals("all")) {
-                        vacancies = allVacancies;
-                    } else {
-                        vacancies = allVacancies.stream()
-                                .filter(v -> v.getCategory() != null &&
-                                        v.getCategory().toLowerCase().contains(categoryName.toLowerCase()))
-                                .toList();
-                    }
-
-                    if (vacancies.isEmpty()) {
-                        String msg = "🔍 Ushbu kategoriya bo'yicha hozircha vakansiyalar mavjud emas.";
-                        SendMessage response = new SendMessage();
-                        response.setChatId(chatId.toString());
-                        response.setText(msg);
-                        response.setReplyMarkup(jobSeekerHandler.getCategoryInlineKeyboard(Optional.empty()));
+                    String categoryKey = callbackData.replace("category_", ""); // to'g'ri
+                    Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId); // chatId
+                    SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
+                    if (response != null) {
                         executeMessage(response);
-                        return;
                     }
-
-                    String titleMsg = "💼 **Topilgan vakansiyalar (" + vacancies.size() + "):**";
-                    SendMessage titleResponse = new SendMessage();
-                    titleResponse.setChatId(chatId.toString());
-                    titleResponse.setText(titleMsg);
-                    titleResponse.setParseMode("Markdown");
-                    executeMessage(titleResponse);
-
-                    for (JobVacancy vacancy : vacancies) {
-                        String vacancyText = String.format(
-                                "📌 **%s**\n" +
-                                        "📂 Kategoriya: %s\n" +
-                                        "💼 Turi: %s\n" +
-                                        "💰 Maosh: %s",
-                                vacancy.getTitle(),
-                                vacancy.getCategory() != null ? vacancy.getCategory() : "Ko'rsatilmagan",
-                                vacancy.getType() != null ? vacancy.getType() : "Ko'rsatilmagan",
-                                vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishilgan"
-                        );
-
-                        InlineKeyboardMarkup applyMarkup = new InlineKeyboardMarkup();
-                        List<List<InlineKeyboardButton>> applyRows = new ArrayList<>();
-                        List<InlineKeyboardButton> applyRow = new ArrayList<>();
-                        applyRow.add(InlineKeyboardButton.builder()
-                                .text("📝 Ariza topshirish")
-                                .callbackData("apply_" + vacancy.getId())
-                                .build());
-                        applyRows.add(applyRow);
-                        applyMarkup.setKeyboard(applyRows);
-
-                        SendMessage vacancyResponse = new SendMessage();
-                        vacancyResponse.setChatId(chatId.toString());
-                        vacancyResponse.setText(vacancyText);
-                        vacancyResponse.setParseMode("Markdown");
-                        vacancyResponse.setReplyMarkup(applyMarkup);
-                        executeMessage(vacancyResponse);
-                    }
-
-                    InlineKeyboardMarkup backMarkup = new InlineKeyboardMarkup();
-                    List<List<InlineKeyboardButton>> backRows = new ArrayList<>();
-                    List<InlineKeyboardButton> backRow = new ArrayList<>();
-                    backRow.add(InlineKeyboardButton.builder()
-                            .text("⬅️ Orqaga")
-                            .callbackData("back_to_categories")
-                            .build());
-                    backRows.add(backRow);
-                    backMarkup.setKeyboard(backRows);
-
-                    SendMessage backResponse = new SendMessage();
-                    backResponse.setChatId(chatId.toString());
-                    backResponse.setText("📂 **Boshqa kategoriyani tanlang:**");
-                    backResponse.setParseMode("Markdown");
-                    backResponse.setReplyMarkup(backMarkup);
-                    executeMessage(backResponse);
                     return;
                 }
 
@@ -386,6 +318,7 @@ public class Telegram extends TelegramLongPollingBot {
         return markup;
     }
 
+    // (Bu metod endi ishlatilmaydi, lekin boshqa joylarga tegmaslik uchun qoldirilgan)
     private String getCategoryName(String key) {
         return switch (key) {
             case "it" -> "💻 IT & Dasturlash";

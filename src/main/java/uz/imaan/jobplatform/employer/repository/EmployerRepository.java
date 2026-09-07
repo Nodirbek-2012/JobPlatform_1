@@ -13,7 +13,9 @@ import java.util.Optional;
 public interface EmployerRepository extends JpaRepository<EmployerEntity, Long> {
 
     @Query("SELECT e FROM EmployerEntity e WHERE e.employerChatId = :tgId OR e.id = :tgId")
-    Optional<EmployerEntity> findByTgId(@Param("tgId") Long tgId);
+    static List<EmployerEntity> findByTgId(@Param("tgId") Long tgId) {
+        return null;
+    }
 
     List<EmployerEntity> findByStatus(String status);
 

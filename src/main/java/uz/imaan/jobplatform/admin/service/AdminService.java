@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import jakarta.transaction.Transactional;
 import jakarta.validation.constraints.NotNull;
 import lombok.Value;
+import org.glassfish.grizzly.threadpool.AbstractThreadPool;
+import org.glassfish.grizzly.utils.DelayedExecutor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -18,6 +20,7 @@ import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -240,6 +243,8 @@ public class AdminService {
                 .completedShifts(completedShiftsCount)
                 .build();
     }
+
+
 
 
 
