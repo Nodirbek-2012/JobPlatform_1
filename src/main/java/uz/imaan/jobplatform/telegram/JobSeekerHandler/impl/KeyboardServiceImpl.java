@@ -18,7 +18,6 @@ import java.util.Optional;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-
 public class KeyboardServiceImpl implements KeyboardService {
 
     // ============================================
@@ -52,6 +51,7 @@ public class KeyboardServiceImpl implements KeyboardService {
         if (isEnglish(profileOpt)) return "🛠 **Worker menu**\n\nSelect the section you need:";
         return "🛠 **Ishchi menyusi**\n\nKerakli bo'limni tanlang:";
     }
+
     // ============================================
     // INLINE KEYBOARD – KATEGORIYALAR
     // ============================================
@@ -140,7 +140,7 @@ public class KeyboardServiceImpl implements KeyboardService {
     }
 
     // ============================================
-    // ASOSIY MENYU
+    // ASOSIY MENYU ("⭐ Saralanganlar" qo'shildi)
     // ============================================
     @Override
     public ReplyKeyboardMarkup getMainMenuKeyboard(Optional<JobSeekerProfile> profileOpt) {
@@ -154,27 +154,30 @@ public class KeyboardServiceImpl implements KeyboardService {
 
         if (isRussian(profileOpt)) {
             row1.add("🔍 Поиск работы");
-            row1.add("⚡ Мои активные работы");
-            row2.add("👤 Мой профиль");
+            row1.add("⭐ Избранное");
+            row2.add("⚡ Мои активные работы");
             row2.add("📂 Мои заявки");
+            row3.add("👤 Мой профиль");
             row3.add("💳 Кошелек");
-            row3.add("⚙️ Настройки");
+            row4.add("⚙️ Настройки");
             row4.add("🏠 Главное меню");
         } else if (isEnglish(profileOpt)) {
             row1.add("🔍 Job search");
-            row1.add("⚡ My active jobs");
-            row2.add("👤 My profile");
+            row1.add("⭐ Favorites");
+            row2.add("⚡ My active jobs");
             row2.add("📂 My applications");
+            row3.add("👤 My profile");
             row3.add("💳 Wallet");
-            row3.add("⚙️ Settings");
+            row4.add("⚙️ Settings");
             row4.add("🏠 Main menu");
         } else {
             row1.add("🔍 Ish qidirish");
-            row1.add("⚡ Faol ishlarim");
-            row2.add("👤 Profilim");
+            row1.add("⭐ Saralanganlar");
+            row2.add("⚡ Faol ishlarim");
             row2.add("📂 Arizalar");
+            row3.add("👤 Profilim");
             row3.add("💳 Hamyon");
-            row3.add("⚙️ Sozlamalar");
+            row4.add("⚙️ Sozlamalar");
             row4.add("Asosiy menyu");
         }
 
@@ -617,5 +620,93 @@ public class KeyboardServiceImpl implements KeyboardService {
 
         markup.setKeyboard(List.of(row));
         return markup;
+    }
+
+    // ============================================
+    // SARALANGANLAR (FAVORITES) TUGMALARI
+    // ============================================
+    @Override
+    public InlineKeyboardMarkup buildVacancyActionKeyboard(Long vacancyId, boolean isFav, Optional<JobSeekerProfile> profileOpt) {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        String applyText = getText(profileOpt, "✍️ Подать заявку", "✍️ Ariza topshirish", "✍️ Apply now");
+        String favText;
+        if (isFav) {
+            favText = getText(profileOpt, "🌟 В избранном (Удалить)", "🌟 Saqlangan (O'chirish)", "🌟 Saved (Remove)");
+        } else {
+            favText = getText(profileOpt, "⭐ В избранное", "⭐ Saralanganlarga saqlash", "⭐ Save to favorites");
+        }
+
+        // 1-qator: Ariza topshirish
+        InlineKeyboardButton applyBtn = new InlineKeyboardButton();
+        applyBtn.setText(applyText);
+        applyBtn.setCallbackData("apply_vac_" + vacancyId);
+
+        // 2-qator: Saralash (Toggle)
+        InlineKeyboardButton favBtn = new InlineKeyboardButton();
+        favBtn.setText(favText);
+        favBtn.setCallbackData("fav_toggle_" + vacancyId);
+
+        rows.add(List.of(applyBtn));
+        rows.add(List.of(favBtn));
+
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    @Override
+    public InlineKeyboardMarkup buildVacancyActionKeyboard(Long vacancyId, boolean isFav) {
+        return buildVacancyActionKeyboard(vacancyId, isFav, Optional.empty());
+    }
+
+    @Override
+    public InlineKeyboardMarkup buildFavoritesPaginationKeyboard(int currentPage, int totalPages, Long vacancyId, Optional<JobSeekerProfile> profileOpt) {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        String removeText = getText(profileOpt, "❌ Удалить из избранного", "❌ Ro'yxatdan o'chirish", "❌ Remove from favorites");
+        String prevText = getText(profileOpt, "⬅️ Назад", "⬅️ Oldingi", "⬅️ Previous");
+        String nextText = getText(profileOpt, "Вперед ➡️", "Keyingi ➡️", "Next ➡️");
+
+        // 1-qator: Ro'yxatdan o'chirish
+        InlineKeyboardButton removeBtn = new InlineKeyboardButton();
+        removeBtn.setText(removeText);
+        removeBtn.setCallbackData("fav_toggle_" + vacancyId);
+        rows.add(List.of(removeBtn));
+
+        // 2-qator: Sahifalash (Paginatsiya)
+        if (totalPages > 1) {
+            List<InlineKeyboardButton> navRow = new ArrayList<>();
+
+            if (currentPage > 0) {
+                InlineKeyboardButton prevBtn = new InlineKeyboardButton();
+                prevBtn.setText(prevText);
+                prevBtn.setCallbackData("fav_page_" + (currentPage - 1));
+                navRow.add(prevBtn);
+            }
+
+            InlineKeyboardButton pageIndicator = new InlineKeyboardButton();
+            pageIndicator.setText((currentPage + 1) + " / " + totalPages);
+            pageIndicator.setCallbackData("noop");
+            navRow.add(pageIndicator);
+
+            if (currentPage < totalPages - 1) {
+                InlineKeyboardButton nextBtn = new InlineKeyboardButton();
+                nextBtn.setText(nextText);
+                nextBtn.setCallbackData("fav_page_" + (currentPage + 1));
+                navRow.add(nextBtn);
+            }
+
+            rows.add(navRow);
+        }
+
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    @Override
+    public InlineKeyboardMarkup buildFavoritesPaginationKeyboard(int currentPage, int totalPages, Long vacancyId) {
+        return buildFavoritesPaginationKeyboard(currentPage, totalPages, vacancyId, Optional.empty());
     }
 }

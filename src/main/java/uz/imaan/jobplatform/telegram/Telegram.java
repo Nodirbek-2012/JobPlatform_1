@@ -3,9 +3,13 @@ package uz.imaan.jobplatform.telegram;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
+import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageReplyMarkup;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
@@ -18,11 +22,14 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import uz.imaan.jobplatform.employer.job.JobStore;
 import uz.imaan.jobplatform.employer.job.JobVacancy;
+import uz.imaan.jobplatform.jobseeker.dto.FavoriteVacancyDto;
 import uz.imaan.jobplatform.jobseeker.entity.JobApplication;
 import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
 import uz.imaan.jobplatform.jobseeker.repository.JobApplicationRepository;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
+import uz.imaan.jobplatform.jobseeker.service.interfaces.FavoriteVacancyService;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.JobSeekerHandler;
+import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.KeyboardService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +52,8 @@ public class Telegram extends TelegramLongPollingBot {
     private final JobStore jobStore;
     private final JobSeekerProfileRepository jobSeekerProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
+    private final FavoriteVacancyService favoriteVacancyService;
+    private final KeyboardService keyboardService;
 
     private final Map<Long, UserRole> userRoles = new ConcurrentHashMap<>();
 
@@ -55,6 +64,8 @@ public class Telegram extends TelegramLongPollingBot {
             JobStore jobStore,
             JobSeekerProfileRepository jobSeekerProfileRepository,
             JobApplicationRepository jobApplicationRepository,
+            FavoriteVacancyService favoriteVacancyService,
+            KeyboardService keyboardService,
             @Value("${telegram.bot.token}") String botToken) {
         super(botToken);
         this.jobSeekerHandler = jobSeekerHandler;
@@ -62,6 +73,8 @@ public class Telegram extends TelegramLongPollingBot {
         this.jobStore = jobStore;
         this.jobSeekerProfileRepository = jobSeekerProfileRepository;
         this.jobApplicationRepository = jobApplicationRepository;
+        this.favoriteVacancyService = favoriteVacancyService;
+        this.keyboardService = keyboardService;
         log.info("✅ Telegram bot ishga tushdi!");
     }
 
@@ -80,6 +93,7 @@ public class Telegram extends TelegramLongPollingBot {
             CallbackQuery callbackQuery = update.getCallbackQuery();
             String callbackData = callbackQuery.getData();
             Long chatId = callbackQuery.getMessage().getChatId();
+            Integer messageId = callbackQuery.getMessage().getMessageId();
 
             log.info("📩 Callback: chatId={}, data={}", chatId, callbackData);
 
@@ -92,65 +106,134 @@ public class Telegram extends TelegramLongPollingBot {
                     return;
                 }
 
+                // Bosilmaydigan tugma
+                if ("noop".equals(callbackData) || "ignore".equals(callbackData)) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
+                    return;
+                }
 
-                if (callbackData.startsWith("accept_app_") || callbackData.startsWith("reject_app_")) {
-                    boolean isAccept = callbackData.startsWith("accept_app_");
-                    String prefix = isAccept ? "accept_app_" : "reject_app_";
-                    String[] parts = callbackData.replace(prefix, "").split("_");
+                // ⭐ SARALANGANLARGA SAQLASH / O'CHIRISH (TOGGLE)
+                if (callbackData.startsWith("fav_toggle_")) {
+                    // Format: fav_toggle_{id} yoki fav_toggle_{id}_{cat}_{page}
+                    String[] parts = callbackData.replace("fav_toggle_", "").split("_");
+                    Long vacancyId = Long.parseLong(parts[0]);
+                    String categoryKey = parts.length > 1 ? parts[1] : "all";
+                    int returnPage = parts.length > 2 ? Integer.parseInt(parts[2]) : 0;
 
-                    Long appId = Long.parseLong(parts[0]);
-                    Long seekerChatId = Long.parseLong(parts[1]);
-                    Integer messageId = callbackQuery.getMessage().getMessageId();
+                    boolean isSaved = favoriteVacancyService.toggleFavorite(chatId, vacancyId);
 
-                    Optional<JobApplication> appOpt = jobApplicationRepository.findById(appId);
-                    if (appOpt.isPresent()) {
-                        JobApplication app = appOpt.get();
-                        app.setStatus(isAccept ? JobApplication.ApplicationStatus.ACCEPTED : JobApplication.ApplicationStatus.REJECTED);
-                        jobApplicationRepository.save(app);
+                    Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
+                    String lang = profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz");
+
+                    String alertText = switch (lang) {
+                        case "ru" -> isSaved ? "⭐ Добавлено в избранное!" : "❌ Удалено из избранного!";
+                        case "en" -> isSaved ? "⭐ Saved to favorites!" : "❌ Removed from favorites!";
+                        default -> isSaved ? "⭐ Vakansiya saqlandi!" : "❌ Saralanganlardan o'chirildi!";
+                    };
+
+                    sendAnswerCallback(callbackQuery.getId(), alertText, false);
+
+                    // Tugmalarni yangilash (Ro'yxatga qaytish tugmasi saqlab qolinadi!)
+                    InlineKeyboardMarkup updatedKeyboard = buildVacancyDetailMarkup(vacancyId, isSaved, categoryKey, returnPage);
+                    EditMessageReplyMarkup editMarkup = new EditMessageReplyMarkup();
+                    editMarkup.setChatId(chatId.toString());
+                    editMarkup.setMessageId(messageId);
+                    editMarkup.setReplyMarkup(updatedKeyboard);
+                    executeEditReplyMarkup(editMarkup);
+                    return;
+                }
+
+                // 📄 SARALANGANLAR SAHIFASINI ALMASHTIRISH
+                if (callbackData.startsWith("fav_page_")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
+                    int targetPage = Integer.parseInt(callbackData.replace("fav_page_", ""));
+                    showFavoritesPage(chatId, targetPage, messageId);
+                    return;
+                }
+
+                // 👁 VAKANSIYANI BATAFSIL KO'RISH (1️⃣, 2️⃣ bosilganda)
+                if (callbackData.startsWith("view_vac_")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
+
+                    String[] parts = callbackData.replace("view_vac_", "").split("_");
+                    Long vacancyId = Long.parseLong(parts[0]);
+                    String categoryKey = parts[1];
+                    int returnPage = Integer.parseInt(parts[2]);
+
+                    JobVacancy vacancy = jobStore.getAllVacancies().stream()
+                            .filter(v -> v.getId().equals(vacancyId))
+                            .findFirst()
+                            .orElse(null);
+
+                    if (vacancy == null) {
+                        sendAnswerCallback(callbackQuery.getId(), "❌ Vakansiya topilmadi!", true);
+                        return;
                     }
+
+                    boolean isFav = favoriteVacancyService.isFavorite(chatId, vacancyId);
+
+                    String cardText = String.format("""
+                            📌 <b>%s</b>
+                            
+                            🏢 <b>Kompaniya:</b> %s
+                            📂 <b>Kategoriya:</b> %s
+                            🕒 <b>Bandlik turi:</b> %s
+                            ⏱ <b>Ish vaqti:</b> %s
+                            💰 <b>Maosh:</b> %s
+                            
+                            📝 <b>Talablar:</b>
+                            %s
+                            
+                            📞 <b>Bog'lanish:</b> %s
+                            """,
+                            escapeHtml(vacancy.getTitle()),
+                            escapeHtml(vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan"),
+                            escapeHtml(vacancy.getCategory() != null ? vacancy.getCategory() : "Ko'rsatilmagan"),
+                            escapeHtml(vacancy.getType() != null ? vacancy.getType() : "To'liq bandlik"),
+                            escapeHtml(vacancy.getWorkHours() != null ? vacancy.getWorkHours() : "Kelishuv asosida"),
+                            escapeHtml(vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishiladi"),
+                            escapeHtml(vacancy.getRequirements() != null ? vacancy.getRequirements() : "Ko'rsatilmadi"),
+                            escapeHtml(vacancy.getPhoneNumber() != null ? vacancy.getPhoneNumber() : "Ariza topshirilgach beriladi")
+                    );
+
+                    InlineKeyboardMarkup cardKeyboard = buildVacancyDetailMarkup(vacancyId, isFav, categoryKey, returnPage);
 
                     EditMessageText editMsg = new EditMessageText();
                     editMsg.setChatId(chatId.toString());
                     editMsg.setMessageId(messageId);
-                    editMsg.setText(isAccept ? "✅ **Ushbu ariza qabul qilindi!**" : "❌ **Ushbu ariza rad etildi.**");
-                    editMsg.setParseMode("Markdown");
+                    editMsg.setText(cardText);
+                    editMsg.setParseMode("HTML");
+                    editMsg.setReplyMarkup(cardKeyboard);
                     executeEditMessage(editMsg);
-
-                    String seekerText = isAccept ?
-                            "🎉 **Xushxabar!** Sizning arizangiz ish beruvchi tomonidan qabul qilindi. Tez orada siz bilan bog'lanishadi!" :
-                            "😔 **Afsuski**, sizning arizangiz ish beruvchi tomonidan rad etildi.";
-
-                    SendMessage seekerMsg = new SendMessage(seekerChatId.toString(), seekerText);
-                    seekerMsg.setParseMode("Markdown");
-                    executeMessage(seekerMsg);
-
                     return;
                 }
 
-                if (callbackData.startsWith("lang_")) {
-                    String language = callbackData.replace("lang_", "");
-                    jobSeekerHandler.updateLanguage(chatId, language);
+                // ➡️⬅️ VAKANSIYALARNI SAHIFALASH
+                if (callbackData.startsWith("vacancy_page_")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
+                    String[] parts = callbackData.replace("vacancy_page_", "").split("_");
+                    String categoryKey = parts[0];
+                    int page = Integer.parseInt(parts[1]);
 
-                    String responseText = switch (language) {
-                        case "uz" -> "✅ Til O'zbek tiliga o'zgartirildi!";
-                        case "ru" -> "✅ Язык изменен на Русский!";
-                        case "en" -> "✅ Language changed to English!";
-                        default -> "❌ Noto'g'ri tanlov!";
-                    };
-
-                    SendMessage response = new SendMessage();
-                    response.setChatId(chatId.toString());
-                    response.setText(responseText);
-                    response.setReplyMarkup(null);
-                    executeMessage(response);
+                    Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
+                    SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, page, profileOpt);
+                    if (response != null) {
+                        EditMessageText editMsg = new EditMessageText();
+                        editMsg.setChatId(chatId.toString());
+                        editMsg.setMessageId(messageId);
+                        editMsg.setText(response.getText());
+                        editMsg.setParseMode("HTML");
+                        editMsg.setReplyMarkup((InlineKeyboardMarkup) response.getReplyMarkup());
+                        executeEditMessage(editMsg);
+                    }
                     return;
                 }
 
-
-                // ✅ YANGILANGAN QISM – PAGINATION ISHLATILADI
+                // 🔍 KATEGORIYA BOSILGANDA
                 if (callbackData.startsWith("category_")) {
-                    String categoryKey = callbackData.replace("category_", ""); // to'g'ri
-                    Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId); // chatId
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
+                    String categoryKey = callbackData.replace("category_", "");
+                    Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
                     SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
                     if (response != null) {
                         executeMessage(response);
@@ -158,24 +241,26 @@ public class Telegram extends TelegramLongPollingBot {
                     return;
                 }
 
+                // 📂 KATEGORIYALARGA QAYTISH
                 if (callbackData.equals("back_to_categories")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
                     SendMessage response = new SendMessage();
                     response.setChatId(chatId.toString());
-                    response.setText("📂 **Kategoriyani tanlang:**");
-                    response.setParseMode("Markdown");
+                    response.setText("📂 <b>Kategoriyani tanlang:</b>");
+                    response.setParseMode("HTML");
                     response.setReplyMarkup(jobSeekerHandler.getCategoryInlineKeyboard(Optional.empty()));
                     executeMessage(response);
                     return;
                 }
 
+                // ✍️ ARIZA TOPSHIRISH
                 if (callbackData.startsWith("apply_")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
                     Long vacancyId = Long.parseLong(callbackData.replace("apply_", ""));
 
                     Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
                     if (profileOpt.isEmpty()) {
-                        SendMessage response = new SendMessage();
-                        response.setChatId(chatId.toString());
-                        response.setText("❌ Iltimos, avval ro'yxatdan o'ting!");
+                        SendMessage response = new SendMessage(chatId.toString(), "❌ Iltimos, avval ro'yxatdan o'ting!");
                         executeMessage(response);
                         return;
                     }
@@ -186,9 +271,7 @@ public class Telegram extends TelegramLongPollingBot {
                             .orElse(null);
 
                     if (vacancy == null) {
-                        SendMessage response = new SendMessage();
-                        response.setChatId(chatId.toString());
-                        response.setText("❌ Vakansiya topilmadi!");
+                        SendMessage response = new SendMessage(chatId.toString(), "❌ Vakansiya topilmadi!");
                         executeMessage(response);
                         return;
                     }
@@ -215,21 +298,19 @@ public class Telegram extends TelegramLongPollingBot {
                         executeMessage(notifyMsg);
                     }
 
-                    SendMessage response = new SendMessage();
-                    response.setChatId(chatId.toString());
-                    response.setText("✅ Ariza muvaffaqiyatli topshirildi!");
+                    SendMessage response = new SendMessage(chatId.toString(), "✅ Arizangiz ish beruvchiga yuborildi!");
                     executeMessage(response);
                     return;
                 }
 
             } catch (Exception e) {
-                log.error("❌ Xatolik: {}", e.getMessage());
+                log.error("❌ Xatolik: {}", e.getMessage(), e);
             }
             return;
         }
 
         // ============================================
-        // 2. TEKST XABARLAR
+        // 2. TEKST XABARLAR (Asosiy Menyu)
         // ============================================
         if (!update.hasMessage()) return;
 
@@ -239,9 +320,15 @@ public class Telegram extends TelegramLongPollingBot {
 
         log.info("📩 Xabar: chatId={}, text={}", chatId, text);
 
+        // ⭐ SARALANGANLAR BOSILGANDA
+        if (text.contains("Saralanganlar") || text.contains("Избранное") || text.contains("Favorites")) {
+            showFavoritesPage(chatId, 0, null);
+            return;
+        }
+
         if (text.equals("/start") || text.equals("🔄 Rolni o'zgartirish") || text.equals("Asosiy menyu") || text.equals("🏠 Asosiy menyu")) {
             userRoles.put(chatId, UserRole.NONE);
-            sendRoleSelectionMenu(chatId, "Hush kelibsiz! Rolingizni tanlang:");
+            sendRoleSelectionMenu(chatId, "Xush kelibsiz! Rolingizni tanlang:");
             return;
         }
 
@@ -269,6 +356,109 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
+    // ============================================
+    // VAKANSIYA KARTASI UCHUN TUGMALAR (Ro'yxatga qaytish bilan)
+    // ============================================
+    private InlineKeyboardMarkup buildVacancyDetailMarkup(Long vacancyId, boolean isFav, String categoryKey, int returnPage) {
+        InlineKeyboardMarkup cardKeyboard = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        // 1-qator: Ariza topshirish
+        InlineKeyboardButton applyBtn = new InlineKeyboardButton();
+        applyBtn.setText("✍️ Ariza topshirish");
+        applyBtn.setCallbackData("apply_" + vacancyId);
+        rows.add(List.of(applyBtn));
+
+        // 2-qator: Saralanganlarga saqlash / O'chirish
+        InlineKeyboardButton favBtn = new InlineKeyboardButton();
+        favBtn.setText(isFav ? "🌟 Saqlangan (O'chirish)" : "⭐ Saralanganlarga saqlash");
+        favBtn.setCallbackData("fav_toggle_" + vacancyId + "_" + categoryKey + "_" + returnPage);
+        rows.add(List.of(favBtn));
+
+        // 3-qator: ⬅️ Ro'yxatga qaytish (Boshqa ishlarni ko'rish uchun!)
+        InlineKeyboardButton backBtn = new InlineKeyboardButton();
+        backBtn.setText("⬅️ Ro'yxatga qaytish");
+        backBtn.setCallbackData("vacancy_page_" + categoryKey + "_" + returnPage);
+        rows.add(List.of(backBtn));
+
+        cardKeyboard.setKeyboard(rows);
+        return cardKeyboard;
+    }
+
+    // ============================================
+    // SARALANGANLAR (FAVORITES) SAHIFALASH METODI
+    // ============================================
+    private void showFavoritesPage(Long chatId, int pageNumber, Integer messageId) {
+        Page<FavoriteVacancyDto> page = favoriteVacancyService.getFavorites(chatId, PageRequest.of(pageNumber, 1));
+        Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
+        String lang = profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz");
+
+        if (page.isEmpty()) {
+            String emptyText = switch (lang) {
+                case "ru" -> "⭐ У вас пока нет сохраненных вакансий.";
+                case "en" -> "⭐ You don't have any saved vacancies yet.";
+                default -> "⭐ Sizda hali saqlangan vakansiyalar mavjud emas.";
+            };
+            SendMessage emptyMsg = new SendMessage(chatId.toString(), emptyText);
+            executeMessage(emptyMsg);
+            return;
+        }
+
+        FavoriteVacancyDto item = page.getContent().get(0);
+
+        String text;
+        if ("ru".equals(lang)) {
+            text = String.format(
+                    "⭐ <b>Избранная вакансия (%d / %d):</b>\n\n💼 <b>Должность:</b> %s\n📂 <b>Категория:</b> %s\n🕒 <b>Тип работы:</b> %s\n⏱ <b>График:</b> %s\n💰 <b>Зарплата:</b> %s",
+                    page.getNumber() + 1, page.getTotalPages(),
+                    escapeHtml(item.title()), escapeHtml(item.category()), escapeHtml(item.type()), escapeHtml(item.workHours()), escapeHtml(item.salary())
+            );
+        } else if ("en".equals(lang)) {
+            text = String.format(
+                    "⭐ <b>Saved vacancy (%d / %d):</b>\n\n💼 <b>Position:</b> %s\n📂 <b>Category:</b> %s\n🕒 <b>Job type:</b> %s\n⏱ <b>Work hours:</b> %s\n💰 <b>Salary:</b> %s",
+                    page.getNumber() + 1, page.getTotalPages(),
+                    escapeHtml(item.title()), escapeHtml(item.category()), escapeHtml(item.type()), escapeHtml(item.workHours()), escapeHtml(item.salary())
+            );
+        } else {
+            text = String.format(
+                    "⭐ <b>Saralangan vakansiya (%d / %d):</b>\n\n💼 <b>Lavozim:</b> %s\n📂 <b>Kategoriya:</b> %s\n🕒 <b>Ish turi:</b> %s\n⏱ <b>Ish vaqti:</b> %s\n💰 <b>Maosh:</b> %s",
+                    page.getNumber() + 1, page.getTotalPages(),
+                    escapeHtml(item.title()), escapeHtml(item.category()), escapeHtml(item.type()), escapeHtml(item.workHours()), escapeHtml(item.salary())
+            );
+        }
+
+        InlineKeyboardMarkup markup = keyboardService.buildFavoritesPaginationKeyboard(
+                page.getNumber(),
+                page.getTotalPages(),
+                item.vacancyId(),
+                profileOpt
+        );
+
+        if (messageId != null) {
+            EditMessageText editMsg = new EditMessageText();
+            editMsg.setChatId(chatId.toString());
+            editMsg.setMessageId(messageId);
+            editMsg.setText(text);
+            editMsg.setParseMode("HTML");
+            editMsg.setReplyMarkup(markup);
+            executeEditMessage(editMsg);
+        } else {
+            SendMessage sendMsg = new SendMessage();
+            sendMsg.setChatId(chatId.toString());
+            sendMsg.setText(text);
+            sendMsg.setParseMode("HTML");
+            sendMsg.setReplyMarkup(markup);
+            executeMessage(sendMsg);
+        }
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
+    }
+
     private void sendRoleSelectionMenu(Long chatId, String text) {
         SendMessage message = new SendMessage(chatId.toString(), text);
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
@@ -289,8 +479,8 @@ public class Telegram extends TelegramLongPollingBot {
     private void sendLanguageSelectionMenu(Long chatId) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
-        message.setText("🌐 **Tilni tanlang / Выберите язык:**");
-        message.setParseMode("Markdown");
+        message.setText("🌐 <b>Tilni tanlang / Выберите язык:</b>");
+        message.setParseMode("HTML");
         message.setReplyMarkup(getLanguageInlineKeyboard());
         executeMessage(message);
     }
@@ -318,24 +508,6 @@ public class Telegram extends TelegramLongPollingBot {
         return markup;
     }
 
-    // (Bu metod endi ishlatilmaydi, lekin boshqa joylarga tegmaslik uchun qoldirilgan)
-    private String getCategoryName(String key) {
-        return switch (key) {
-            case "it" -> "💻 IT & Dasturlash";
-            case "design" -> "🎨 Dizayn";
-            case "construction" -> "🏗️ Qurilish";
-            case "driver" -> "🚗 Haydovchi / Kuryer";
-            case "education" -> "📚 Ta'lim / Repetitor";
-            case "trade" -> "🛒 Savdo / Sotuvchi";
-            case "cleaner" -> "🧹 Farrosh / Tozalash";
-            case "cook" -> "👨‍🍳 Pazanda / Oshpaz";
-            case "security" -> "🔒 Qorovul / Xavfsizlik";
-            case "courier" -> "📦 Kuryer / Yetkazib berish";
-            case "all" -> "Barcha vakansiyalar";
-            default -> key;
-        };
-    }
-
     private void executeMessage(SendMessage message) {
         try {
             execute(message);
@@ -349,6 +521,28 @@ public class Telegram extends TelegramLongPollingBot {
             execute(message);
         } catch (TelegramApiException e) {
             log.error("❌ Edit Message Xatolik: {}", e.getMessage());
+        }
+    }
+
+    private void executeEditReplyMarkup(EditMessageReplyMarkup markup) {
+        try {
+            execute(markup);
+        } catch (TelegramApiException e) {
+            log.error("❌ EditReplyMarkup Xatolik: {}", e.getMessage());
+        }
+    }
+
+    private void sendAnswerCallback(String callbackQueryId, String text, boolean showAlert) {
+        try {
+            AnswerCallbackQuery answer = new AnswerCallbackQuery();
+            answer.setCallbackQueryId(callbackQueryId);
+            if (text != null) {
+                answer.setText(text);
+                answer.setShowAlert(showAlert);
+            }
+            execute(answer);
+        } catch (TelegramApiException e) {
+            log.error("❌ AnswerCallback Xatolik: {}", e.getMessage());
         }
     }
 }

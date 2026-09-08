@@ -26,6 +26,7 @@ import uz.imaan.jobplatform.jobseeker.repository.BankCardRepository;
 import uz.imaan.jobplatform.jobseeker.repository.JobApplicationRepository;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
 import uz.imaan.jobplatform.jobseeker.repository.SubscriptionRepository;
+import uz.imaan.jobplatform.jobseeker.service.interfaces.FavoriteVacancyService;
 import uz.imaan.jobplatform.jobseeker.service.interfaces.WalletService;
 import uz.imaan.jobplatform.telegram.EmployerHandler;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.JobSeekerState;
@@ -55,6 +56,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     private final WalletService walletService;
     private final EmployerHandler employerHandler;
     private final ApplicationContext applicationContext;
+    private final FavoriteVacancyService favoriteVacancyService;
 
     // ===== YANGI SERVISLAR =====
     private final StateManager stateManager;
@@ -1586,15 +1588,16 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         return null;
     }
-
     @Override
     public SendMessage handleVacancyPagination(Long chatId, String categoryKey, int page, Optional<JobSeekerProfile> profileOpt) {
-        return null;
+        // PaginationService'ga yo'naltiramiz:
+        return paginationService.handleVacancyPagination(chatId, categoryKey, page, profileOpt);
     }
 
     @Override
     public ReplyKeyboard getCategoryInlineKeyboard(Optional<Object> empty) {
-        return null;
+        // KeyboardService'ga yo'naltiramiz:
+        return keyboardService.getCategoryInlineKeyboard(Optional.empty());
     }
 
 }

@@ -45,4 +45,12 @@ public interface KeyboardService {
 
     String getText(Optional<JobSeekerProfile> profileOpt, String ru, String uz, String en);
 
+    InlineKeyboardMarkup buildVacancyActionKeyboard(Long vacancyId, boolean isFav, Optional<JobSeekerProfile> profileOpt);
+
+    InlineKeyboardMarkup buildVacancyActionKeyboard(Long vacancyId, boolean isFav);
+
+    InlineKeyboardMarkup buildFavoritesPaginationKeyboard(int currentPage, int totalPages, Long vacancyId, Optional<JobSeekerProfile> profileOpt);
+
+    InlineKeyboardMarkup buildFavoritesPaginationKeyboard(int currentPage, int totalPages, Long vacancyId);
+
 }
