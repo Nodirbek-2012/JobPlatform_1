@@ -94,4 +94,7 @@ public class JobSeekerProfile {
 
     @Column(name = "photo_file_id")
     private String photoFileId;
+
+    @Column(name = "review_count")
+    private Integer reviewCount = 0;
 }

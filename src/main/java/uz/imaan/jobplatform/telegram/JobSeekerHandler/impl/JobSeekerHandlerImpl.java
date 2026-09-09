@@ -848,14 +848,17 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (text.contains("Portfolio") || text.contains("Портфолио") || text.contains("Portfolio")) {
             return showPortfolio(chatId, profileOpt);
         }
+
         if (text.contains("Reyting") || text.contains("Рейтинг") || text.contains("Rating")) {
+            int count = profile.getReviewCount() != null ? profile.getReviewCount() : 0;
             String msg = getText(profileOpt, chatId,
-                    String.format("⭐ **Ваш текущий рейтинг:** %.1f / 5.0", rating),
-                    String.format("⭐ **Sizning joriy reytingingiz:** %.1f / 5.0", rating),
-                    String.format("⭐ **Your current rating:** %.1f / 5.0", rating)
+                    String.format("⭐ **Ваш текущий рейтинг:** %.1f / 5.0 (%d оценок)", rating, count),
+                    String.format("⭐ **Sizning joriy reytingingiz:** %.1f / 5.0 (%d ta baho)", rating, count),
+                    String.format("⭐ **Your current rating:** %.1f / 5.0 (%d reviews)", rating, count)
             );
             return createMessage(chatId, msg, keyboardService.getProfileKeyboard(profileOpt));
         }
+
         if (text.contains("Rasm") || text.contains("Фото") || text.contains("Photo")) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PHOTO);
             String msg = getText(profileOpt, chatId,
@@ -971,13 +974,20 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             cardDisplay = "❌ Karta ma'lumoti olinmadi";
         }
 
+        // ⭐ REYTING VA BAHOLAR SONINI HISOBLASH
+        int count = profile.getReviewCount() != null ? profile.getReviewCount() : 0;
+        double currentRating = profile.getRating() != null ? profile.getRating() : 0.0;
+        String ratingDisplayUz = count > 0 ? String.format("%.1f (%d ta baho)", currentRating, count) : "0.0 (Hali baholanmagan)";
+        String ratingDisplayRu = count > 0 ? String.format("%.1f (%d оценок)", currentRating, count) : "0.0 (Еще нет оценок)";
+        String ratingDisplayEn = count > 0 ? String.format("%.1f (%d reviews)", currentRating, count) : "0.0 (No reviews yet)";
+
         if (isRussian(profileOpt)) {
             return String.format(
                     "👤 **Информация профиля:**\n\n" +
                             "📌 **Ф.И.О:** %s\n" +
                             "🪪 **Паспорт:** %s\n" +
                             "📞 **Телефон:** %s\n" +
-                            "⭐ **Рейтинг:** %.1f\n" +
+                            "⭐ **Рейтинг:** %s\n" +
                             "💼 **Профессия:** %s\n" +
                             "📝 **Опыт:** %s\n" +
                             "🛠 **Тип работы:** %s\n" +
@@ -985,7 +995,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     profile.getFullName() != null ? profile.getFullName() : "Не указано",
                     profile.getPassportNumber() != null ? profile.getPassportNumber() : "Не указан",
                     profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "Не указан",
-                    profile.getRating() != null ? profile.getRating() : 0.0,
+                    ratingDisplayRu,
                     profile.getProfession() != null ? profile.getProfession() : "Не указана",
                     profile.getExperience() != null ? profile.getExperience() : "Не указан",
                     jobTypeDisplay,
@@ -998,7 +1008,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                             "📌 **Full name:** %s\n" +
                             "🪪 **Passport:** %s\n" +
                             "📞 **Phone:** %s\n" +
-                            "⭐ **Rating:** %.1f\n" +
+                            "⭐ **Rating:** %s\n" +
                             "💼 **Profession:** %s\n" +
                             "📝 **Experience:** %s\n" +
                             "🛠 **Job type:** %s\n" +
@@ -1006,7 +1016,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     profile.getFullName() != null ? profile.getFullName() : "Not specified",
                     profile.getPassportNumber() != null ? profile.getPassportNumber() : "Not specified",
                     profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "Not specified",
-                    profile.getRating() != null ? profile.getRating() : 0.0,
+                    ratingDisplayEn,
                     profile.getProfession() != null ? profile.getProfession() : "Not specified",
                     profile.getExperience() != null ? profile.getExperience() : "Not specified",
                     jobTypeDisplay,
@@ -1018,7 +1028,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                         "📌 **F.I.O:** %s\n" +
                         "🪪 **Pasport:** %s\n" +
                         "📞 **Tel:** %s\n" +
-                        "⭐ **Reyting:** %.1f\n" +
+                        "⭐ **Reyting:** %s\n" +
                         "💼 **Kasb:** %s\n" +
                         "📝 **Tajriba:** %s\n" +
                         "🛠 **Ish turi:** %s\n" +
@@ -1026,7 +1036,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 profile.getFullName() != null ? profile.getFullName() : "Kiritilmagan",
                 profile.getPassportNumber() != null ? profile.getPassportNumber() : "Kiritilmagan",
                 profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "Kiritilmagan",
-                profile.getRating() != null ? profile.getRating() : 0.0,
+                ratingDisplayUz,
                 profile.getProfession() != null ? profile.getProfession() : "Ko'rsatilmagan",
                 profile.getExperience() != null ? profile.getExperience() : "Ko'rsatilmagan",
                 jobTypeDisplay,
