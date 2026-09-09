@@ -41,5 +41,6 @@ public class EmployerEntity {
     private Double latitude;
     private Double longitude;
     private String language;
-    private String companyName;    // To'g'ri camelCase formatda
+    private String companyName;
+    private Long telegramId;// To'g'ri camelCase formatda
 }

@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -31,14 +30,14 @@ public class TelegramBotService extends TelegramLongPollingBot {
     private String botUsername = "employment_chirchik_bot";
     private long lastUpdateId = 0;
 
-    @Lazy
+    // Direct injection orqali AOP Proxy bilan bog'liq siklik bog'lanish va Lazy muammosini oldini olamiz
     @Autowired
+    @Lazy
     private AdminService adminService;
 
-    public TelegramBotService(AdminService adminService) {
+    public TelegramBotService() {
         super("8757778609:AAEtyutp-PvYDx8DbtcIYSQmw7W4hU2GryI");
         this.botUsername = "employment_chirchik_bot";
-        this.adminService = adminService;
     }
 
     private String getLanguage(long chatId) {
@@ -107,7 +106,7 @@ public class TelegramBotService extends TelegramLongPollingBot {
                 return;
             }
 
-            if (text.startsWith("/info ")) {
+            if (text.startsWith("/info")) {
                 handleInfoCommand(chatId, text);
                 return;
             }
@@ -148,7 +147,7 @@ public class TelegramBotService extends TelegramLongPollingBot {
 
             sendMessage(chatId, statsText);
         } else if ("admin_workers".equals(data) || "workers".equals(data)) {
-            sendMessage(chatId, adminService.getFormattedJobSeekersList());
+            sendMessage(chatId, adminService.getAllWorkersList());
         } else if ("admin_employers".equals(data) || "employers".equals(data)) {
             sendMessage(chatId, adminService.getFormattedEmployersList());
         } else if ("admin_refresh".equals(data)) {
@@ -262,7 +261,6 @@ public class TelegramBotService extends TelegramLongPollingBot {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        // Ряд 1: Списки пользователей
         InlineKeyboardButton btnWorkers = new InlineKeyboardButton();
         btnWorkers.setText("👷 " + ("UZ".equals(lang) ? "Ishchilar" : "Рабочие"));
         btnWorkers.setCallbackData("admin_workers");
@@ -273,14 +271,12 @@ public class TelegramBotService extends TelegramLongPollingBot {
 
         rows.add(List.of(btnWorkers, btnEmployers));
 
-        // Ряд 2: Кнопка поиска по TG ID
         InlineKeyboardButton btnFindTgId = new InlineKeyboardButton();
         btnFindTgId.setText("🔍 " + ("UZ".equals(lang) ? "TG ID bo'yicha qidiruv" : "Инфо по TG ID"));
         btnFindTgId.setCallbackData("admin_find_by_tg_id");
 
         rows.add(List.of(btnFindTgId));
 
-        // Ряд 3: Обновление данных и Настройки
         InlineKeyboardButton btnRefresh = new InlineKeyboardButton();
         btnRefresh.setText("🔄 " + ("UZ".equals(lang) ? "Yangilash" : "Обновить"));
         btnRefresh.setCallbackData("admin_refresh");
@@ -308,15 +304,26 @@ public class TelegramBotService extends TelegramLongPollingBot {
 
     private void handleInfoCommand(long chatId, String text) {
         try {
-            Long targetTgId = Long.parseLong(text.replace("/info ", "").trim());
-            // Вызываем логику поиска через сервис
-            String result = String.valueOf(adminService.getAdminById(targetTgId));
-            sendMessage(chatId, result);
+            String[] parts = text.split("\\s+");
+            if (parts.length > 1) {
+                Long targetTgId = Long.parseLong(parts[1].trim());
+                String infoText = adminService.getUserInfoByTgId(targetTgId);
+
+                if (infoText == null || infoText.trim().isEmpty()) {
+                    sendMessage(chatId, "⚠️ Пользователь с ID `" + targetTgId + "` не найден.");
+                } else {
+                    sendMessage(chatId, infoText);
+                }
+            } else {
+                sendMessage(chatId, "⚠️ Укажите ID, например: `/info 123456789`");
+            }
         } catch (NumberFormatException e) {
-            sendMessage(chatId, "⚠️ Неверный формат ID. Используйте: `/info 123456789`");
+            sendMessage(chatId, "❌ Некорректный формат ID. Используйте только цифры.");
         } catch (Exception e) {
-            sendMessage(chatId, "⚠️ Ошибка при получении информации о пользователе.");
             e.printStackTrace();
+            // Konsolda xatoni aniq ko'rish uchun logga olamiz:
+            System.err.println("CRITICAL ERROR IN INFO COMMAND: " + e.getMessage());
+            sendMessage(chatId, "⚠️ Ошибка при получении информации о пользователе: " + e.getMessage());
         }
     }
 

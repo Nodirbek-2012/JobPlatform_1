@@ -16,6 +16,9 @@ public interface JobSeekerProfileRepository extends JpaRepository<JobSeekerProfi
     // 1. Telegram userId bo'yicha topish
     Optional<JobSeekerProfile> findByUserId(Long userId);
 
+    // Yoki agar Entity'dagi maydon 'telegramId' bo'lsa:
+    Optional<JobSeekerProfile> findByTelegramId(Long telegramId);
+
     // 2. Admin uchun: Telefon raqam bo'yicha topish
     Optional<JobSeekerProfile> findByPhoneNumber(String phoneNumber);
 
@@ -35,10 +38,5 @@ public interface JobSeekerProfileRepository extends JpaRepository<JobSeekerProfi
             "j.phoneNumber LIKE CONCAT('%', :keyword, '%')")
     List<JobSeekerProfile> searchForAdmin(@Param("keyword") String keyword);
 
-
-    @Query("SELECT j FROM JobSeekerProfile j WHERE j.userId = :tgId OR j.id = :tgId")
-    static Optional<JobSeekerProfile> findByTgId(@Param("tgId") Long tgId) {
-        return null;
-    }
 }
 

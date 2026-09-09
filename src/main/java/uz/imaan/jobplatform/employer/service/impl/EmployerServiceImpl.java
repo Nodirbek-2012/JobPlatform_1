@@ -213,7 +213,7 @@ public class EmployerServiceImpl implements EmployerService {
     @Override
     @Transactional(readOnly = true)
     public List<EmployerResponseDTO> getByEmployerChatId(Long chatId) {
-        return repository.findByEmployerChatId(chatId).stream().map(mapper::toResponseDTO).collect(Collectors.toList());
+        return repository.findById(chatId).stream().map(mapper::toResponseDTO).collect(Collectors.toList());
     }
 
     @Override

@@ -24,7 +24,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
-public class AdminService {
+public abstract class AdminService {
 
     private final AdminRepository adminRepository;
     private final AdminMapper adminMapper;
@@ -207,6 +207,8 @@ public class AdminService {
         return sb.toString();
     }
 
+    public abstract String getAllWorkersList();
+
     public String getFormattedEmployersList() {
         List<EmployerEntity> list = getAllEmployers();
         if (list.isEmpty()) {
@@ -245,8 +247,5 @@ public class AdminService {
     }
 
 
-
-
-
-
+    public abstract String getUserInfoByTgId(Long targetTgId);
 }

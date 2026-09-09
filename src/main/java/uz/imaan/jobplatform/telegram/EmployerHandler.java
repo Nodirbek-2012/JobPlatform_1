@@ -65,7 +65,7 @@ public class EmployerHandler {
         String text = message.hasText() ? message.getText().trim() : "";
         draftData.putIfAbsent(chatId, new ConcurrentHashMap<>());
 
-        Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
+        Optional<EmployerEntity> profileOpt = employerRepository.findById(chatId);
         String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
 
         // 0. Ro'yxatdan o'tish zarurati
@@ -313,7 +313,7 @@ public class EmployerHandler {
         String data = callbackQuery.getData();
         draftData.putIfAbsent(chatId, new ConcurrentHashMap<>());
 
-        Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
+        Optional<EmployerEntity> profileOpt = employerRepository.findById(chatId);
         String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
 
         EmployerState state = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
@@ -343,7 +343,7 @@ public class EmployerHandler {
             String[] parts = data.split("_");
 
             String originalText = "";
-            if (callbackQuery.getMessage() instanceof org.telegram.telegrambots.meta.api.objects.Message msg) {
+            if (callbackQuery.getMessage() instanceof Message msg) {
                 originalText = msg.hasText() ? msg.getText() : "";
             }
 
@@ -383,7 +383,7 @@ public class EmployerHandler {
                     Long employeeChatId = Long.parseLong(parts[3]);
 
                     if (isAccept) {
-                        Optional<EmployerEntity> employerOpt = employerRepository.findByEmployerChatId(chatId);
+                        Optional<EmployerEntity> employerOpt = employerRepository.findById(chatId);
                         // JobSeekerProfileRepository dan userId bo'yicha qidirish
                         Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findByUserId(employeeChatId);
 

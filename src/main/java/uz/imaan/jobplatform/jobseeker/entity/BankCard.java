@@ -8,7 +8,6 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-
 @Entity
 @Table(name = "bank_cards")
 @Getter
@@ -16,7 +15,6 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-
 public class BankCard {
 
     @Id
@@ -24,24 +22,22 @@ public class BankCard {
     private Long id;
 
     @NotBlank(message = "Karta raqami kiritilishi shart")
-    @Size(min = 16, max = 16, message = "Karta raqami 16ta raqamdan iborat bolishi kerak ")
-    @Pattern(regexp = "^[0-9]{16}", message = "Karta raqami faqat raqamlardan iborat bolishi kerak ")
-
+    @Size(min = 16, max = 16, message = "Karta raqami 16ta raqamdan iborat bolishi kerak")
+    @Pattern(regexp = "^[0-9]{16}$", message = "Karta raqami faqat raqamlardan iborat bolishi kerak")
     @Column(name = "card_number", nullable = false, unique = true)
     private String cardNumber;
 
-
-
-
-    @NotBlank(message = "Karta egasi ismi kiritilishi shart ")
+    @NotBlank(message = "Karta egasi ismi kiritilishi shart")
     @Size(min = 3, max = 100, message = "Karta egasi ismi 3-100 belgidan iborat bolishi kerak")
     @Column(name = "card_holder_name")
     private String cardHolderName;
 
+    // To'g'ri bog'lanish:
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "job_seeker_id")
     private JobSeekerProfile jobSeeker;
 
+    @Builder.Default
     @Column(name = "is_active")
     private Boolean isActive = true;
 
@@ -55,5 +51,4 @@ public class BankCard {
             isActive = true;
         }
     }
-
 }

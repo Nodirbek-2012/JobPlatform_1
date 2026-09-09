@@ -39,17 +39,17 @@ public class PaginationServiceImpl implements PaginationService {
 
     private String getCategoryName(String key) {
         return switch (key) {
-            case "it" -> "IT & Dasturlash";
-            case "design" -> "Dizayn";
-            case "construction" -> "Qurilish";
-            case "driver" -> "Haydovchi";
-            case "education" -> "Ta'lim";
-            case "trade" -> "Savdo";
-            case "cleaner" -> "Farrosh";
-            case "cook" -> "Oshpaz";
-            case "security" -> "Qorovul";
-            case "courier" -> "Kuryer";
-            case "all" -> "Barcha";
+            case "it" -> "💻 IT & Dasturlash";
+            case "design" -> "🎨 Dizayn";
+            case "construction" -> "🏗️ Qurilish";
+            case "driver" -> "🚗 Haydovchi / Kuryer";
+            case "education" -> "📚 Ta'lim / Repetitor";
+            case "trade" -> "🛒 Savdo / Sotuvchi";
+            case "cleaner" -> "🧹 Farrosh / Tozalash";
+            case "cook" -> "👨‍🍳 Pazanda / Oshpaz";
+            case "security" -> "🔒 Qorovul / Xavfsizlik";
+            case "courier" -> "📦 Kuryer / Yetkazib berish";
+            case "all" -> "Barcha vakansiyalar";
             default -> key;
         };
     }
@@ -58,59 +58,46 @@ public class PaginationServiceImpl implements PaginationService {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText(text);
-        message.setParseMode("HTML"); // Markdown o'rniga HTML xavfsizroq va qotmaydi
+        message.setParseMode("Markdown");
         if (keyboard != null) message.setReplyMarkup(keyboard);
         return message;
     }
 
-
     // ============================================
-    // PAGINATION KEYBOARD (Raqamli tugmalar bilan)
+    // PAGINATION KEYBOARD
     // ============================================
     private InlineKeyboardMarkup buildPaginationKeyboard(String categoryKey, int currentPage, int totalPages,
-                                                         List<JobVacancy> pageVacancies, int start,
                                                          Optional<JobSeekerProfile> profileOpt) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        List<InlineKeyboardButton> row = new ArrayList<>();
 
-        // 1. Har bir vakansiyani tanlash uchun raqamli tugmalar: [ 1️⃣ ] [ 2️⃣ ] [ 3️⃣ ] ...
-        List<InlineKeyboardButton> numberRow = new ArrayList<>();
-        int index = start + 1;
-        for (JobVacancy vac : pageVacancies) {
-            InlineKeyboardButton numBtn = new InlineKeyboardButton();
-            numBtn.setText(getEmojiNumber(index));
-            // callback: view_vac_{id}_{kategoriya}_{sahifa}
-            numBtn.setCallbackData("view_vac_" + vac.getId() + "_" + categoryKey + "_" + currentPage);
-            numberRow.add(numBtn);
-            index++;
-        }
-        rows.add(numberRow);
-
-        // 2. Sahifalash (Oldingi / Sahifa / Keyingi)
-        List<InlineKeyboardButton> navRow = new ArrayList<>();
+        // Oldingi sahifa
         if (currentPage > 0) {
             InlineKeyboardButton prev = new InlineKeyboardButton();
-            prev.setText("⬅️ Oldingi");
+            prev.setText("⬅️");
             prev.setCallbackData("vacancy_page_" + categoryKey + "_" + (currentPage - 1));
-            navRow.add(prev);
+            row.add(prev);
         }
 
+        // Sahifa raqami
         InlineKeyboardButton pageInfo = new InlineKeyboardButton();
-        pageInfo.setText((currentPage + 1) + " / " + totalPages);
-        pageInfo.setCallbackData("noop");
-        navRow.add(pageInfo);
+        pageInfo.setText((currentPage + 1) + "/" + totalPages);
+        pageInfo.setCallbackData("ignore");
+        row.add(pageInfo);
 
+        // Keyingi sahifa
         if (currentPage < totalPages - 1) {
             InlineKeyboardButton next = new InlineKeyboardButton();
-            next.setText("Keyingi ➡️");
+            next.setText("➡️");
             next.setCallbackData("vacancy_page_" + categoryKey + "_" + (currentPage + 1));
-            navRow.add(next);
+            row.add(next);
         }
-        rows.add(navRow);
+        rows.add(row);
 
-        // 3. Kategoriyalarga qaytish tugmasi
+        // Orqaga qaytish
         List<InlineKeyboardButton> backRow = new ArrayList<>();
         InlineKeyboardButton back = new InlineKeyboardButton();
-        String backText = isRussian(profileOpt) ? "📂 К категориям" : (isEnglish(profileOpt) ? "📂 To categories" : "📂 Kategoriyalarga qaytish");
+        String backText = isRussian(profileOpt) ? "⬅️ Назад" : (isEnglish(profileOpt) ? "⬅️ Back" : "⬅️ Orqaga");
         back.setText(backText);
         back.setCallbackData("back_to_categories");
         backRow.add(back);
@@ -121,60 +108,33 @@ public class PaginationServiceImpl implements PaginationService {
         return markup;
     }
 
-    // Raqamlar uchun emojilar
-    private String getEmojiNumber(int num) {
-        return switch (num) {
-            case 1 -> "1️⃣";
-            case 2 -> "2️⃣";
-            case 3 -> "3️⃣";
-            case 4 -> "4️⃣";
-            case 5 -> "5️⃣";
-            case 6 -> "6️⃣";
-            case 7 -> "7️⃣";
-            case 8 -> "8️⃣";
-            case 9 -> "9️⃣";
-            case 10 -> "🔟";
-            default -> String.valueOf(num);
-        };
-    }
-
     // ============================================
     // ASOSIY METODLAR
     // ============================================
     @Override
     public void handleCategorySearch(Long chatId, String categoryKey, Optional<JobSeekerProfile> profileOpt) {
+        // Bu metod faqat paginationni chaqiradi, natijani yuborish Handler zimmasida
+        // Handler bu metodni chaqirib, qaytgan SendMessage ni execute qiladi
     }
 
     @Override
     public SendMessage handleVacancyPagination(Long chatId, String categoryKey, int page,
                                                Optional<JobSeekerProfile> profileOpt) {
         try {
-            List<JobVacancy> rawVacancies = jobStore.getAllVacancies();
-            if (rawVacancies == null) {
-                rawVacancies = List.of();
-            }
-
-            // 1. Vakansiyalarni filtrlash (xavfsiz va 2 tomonlama qidiruv)
+            // 1. Vakansiyalarni olish
             List<JobVacancy> allVacancies;
-            if ("all".equalsIgnoreCase(categoryKey)) {
-                allVacancies = rawVacancies;
+            if ("all".equals(categoryKey)) {
+                allVacancies = jobStore.getAllVacancies();
             } else {
-                String cleanName = getCategoryName(categoryKey).toLowerCase();
-                String keyLower = categoryKey.toLowerCase();
-
-                allVacancies = rawVacancies.stream()
-                        .filter(v -> {
-                            if (v.getCategory() == null) return false;
-                            String vacCat = v.getCategory().toLowerCase();
-                            return vacCat.contains(cleanName) ||
-                                    cleanName.contains(vacCat) ||
-                                    vacCat.contains(keyLower);
-                        })
+                String categoryName = getCategoryName(categoryKey);
+                allVacancies = jobStore.getAllVacancies().stream()
+                        .filter(v -> v.getCategory() != null &&
+                                v.getCategory().toLowerCase().contains(categoryName.toLowerCase()))
                         .toList();
             }
 
             // 2. Vakansiyalar mavjudligini tekshirish
-            if (allVacancies.isEmpty()) {
+            if (allVacancies == null || allVacancies.isEmpty()) {
                 String msg = keyboardService.getText(profileOpt,
                         "❌ В этой категории пока нет активных вакансий.",
                         "❌ Bu kategoriya bo'yicha hozircha faol vakansiyalar mavjud emas.",
@@ -193,29 +153,24 @@ public class PaginationServiceImpl implements PaginationService {
             int end = Math.min(start + PAGE_SIZE, allVacancies.size());
             List<JobVacancy> pageVacancies = allVacancies.subList(start, end);
 
-            // 5. Xabar matnini tayyorlash (HTML formatida)
+            // 5. Xabar matnini tayyorlash
             StringBuilder result = new StringBuilder();
-            result.append("📋 <b>Topilgan vakansiyalar (").append(allVacancies.size()).append("):</b>\n\n");
+            String title = "📋 **Topilgan vakansiyalar (" + allVacancies.size() + "):**\n\n";
+            result.append(title);
 
             int globalIndex = start + 1;
             for (JobVacancy vacancy : pageVacancies) {
-                String title = vacancy.getTitle() != null ? vacancy.getTitle() : "Nomsiz e'lon";
-                String category = vacancy.getCategory() != null ? vacancy.getCategory() : "-";
-                String salary = vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishuv asosida";
-                String company = vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan";
-
-                result.append(globalIndex++).append(". 📌 <b>").append(title).append("</b>\n");
-                result.append("   📂 Kategoriya: ").append(category).append("\n");
-                result.append("   💰 Maosh: ").append(salary).append("\n");
-                result.append("   🏢 Kompaniya: ").append(company).append("\n");
+                result.append(globalIndex++).append(". 📌 **").append(vacancy.getTitle()).append("**\n");
+                result.append("   📂 Kategoriya: ").append(vacancy.getCategory()).append("\n");
+                result.append("   💰 Maosh: ").append(vacancy.getSalary()).append("\n");
+                result.append("   🏢 Kompaniya: ").append(vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan").append("\n");
                 result.append("───────────────\n");
             }
 
             // 6. Keyboard
-            // 6. Keyboard (pageVacancies va start uzatiladi)
-            InlineKeyboardMarkup keyboard = buildPaginationKeyboard(categoryKey, page, totalPages, pageVacancies, start, profileOpt);
+            InlineKeyboardMarkup keyboard = buildPaginationKeyboard(categoryKey, page, totalPages, profileOpt);
 
-            // 7. Xabar qaytarish
+            // 7. Xabar
             return createMessage(chatId, result.toString(), keyboard);
 
         } catch (Exception e) {

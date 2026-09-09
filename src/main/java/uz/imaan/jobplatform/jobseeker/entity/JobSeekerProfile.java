@@ -4,11 +4,10 @@ import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
 import lombok.*;
 
-
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-
+import java.util.Optional;
 
 @Entity
 @Table(name = "job_seekers")
@@ -17,20 +16,18 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-
 public class JobSeekerProfile {
-
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotNull(message = "User ID kiritilishi shart ")
+    @NotNull(message = "User ID kiritilishi shart")
     @Column(name = "user_id", nullable = false, unique = true)
     private Long userId;
 
-    @NotBlank(message = "Ism familya kiritilishi shart ")
-    @Size(min = 3, max = 100, message = "Ism familya 3-100 belgidan iborat bolishi kerak ")
+    @NotBlank(message = "Ism familya kiritilishi shart")
+    @Size(min = 3, max = 100, message = "Ism familya 3-100 belgidan iborat bolishi kerak")
     @Column(name = "full_name")
     private String fullName;
 
@@ -50,6 +47,7 @@ public class JobSeekerProfile {
 
     @NotBlank(message = "Pasport raqami kiritilishi shart")
     @Size(min = 8, max = 20, message = "Pasport raqami 8-20 belgidan iborat bo'lishi kerak")
+    @Column(name = "passport_number")
     private String passportNumber;
 
     @Column(name = "avatar_url")
@@ -91,5 +89,6 @@ public class JobSeekerProfile {
     @OneToMany(mappedBy = "jobSeeker", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private List<BankCard> bankCards = new ArrayList<>();
-
+    @Column(name = "telegram_id")
+    private Long telegramId;
 }
