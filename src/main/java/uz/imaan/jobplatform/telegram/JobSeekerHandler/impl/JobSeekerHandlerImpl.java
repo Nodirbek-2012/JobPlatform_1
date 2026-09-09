@@ -1,9 +1,7 @@
 package uz.imaan.jobplatform.telegram.JobSeekerHandler.impl;
 
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -90,7 +88,9 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     // ============================================
     // YORDAMCHI METODLAR
     // ============================================
-    private SendMessage createMessage(Long chatId, String text, ReplyKeyboardMarkup keyboard) {
+
+    // Barcha turdagi klaviaturalar (Reply va Inline) uchun 1 ta umumiy metod:
+    private SendMessage createMessage(Long chatId, String text, ReplyKeyboard keyboard) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText(text);
@@ -99,13 +99,20 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return message;
     }
 
-    private SendMessage createMessage(Long chatId, String text, InlineKeyboardMarkup keyboard) {
+    private SendMessage createHtmlMessage(Long chatId, String text, ReplyKeyboardMarkup keyboard) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText(text);
-        message.setParseMode("Markdown");
+        message.setParseMode("HTML");
         if (keyboard != null) message.setReplyMarkup(keyboard);
         return message;
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private void executeMessage(SendMessage message) {
@@ -150,7 +157,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     // ============================================
     // ASOSIY HANDLE METODI
     // ============================================
-
     @Override
     public SendMessage handleJobSeeker(Message message) {
         if (message == null) return null;
@@ -230,7 +236,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         }
 
         // ===== REGISTRATSIYA BOSQICHLARI =====
-        // Step 1: Ism
         if (state == JobSeekerState.WAITING_FOR_NAME && message.hasText()) {
             stateManager.putData(chatId, "fullName", text);
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PASSPORT);
@@ -242,7 +247,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return createMessage(chatId, msg, (ReplyKeyboardMarkup) null);
         }
 
-        // Step 2: Pasport
         if (state == JobSeekerState.WAITING_FOR_PASSPORT && message.hasText()) {
             stateManager.putData(chatId, "passport", text);
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PHONE);
@@ -254,32 +258,26 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return createMessage(chatId, msg, keyboardService.getPhoneKeyboard());
         }
 
-        // Step 3: Telefon raqam
         if (state == JobSeekerState.WAITING_FOR_PHONE) {
             return handlePhoneInput(chatId, message, profileOpt);
         }
 
-        // Step 4: Ish turi
         if (state == JobSeekerState.WAITING_FOR_JOB_TYPE && message.hasText()) {
             return handleJobTypeSelection(chatId, text, profileOpt);
         }
 
-        // Step 5: Kategoriya tanlash
         if (state == JobSeekerState.WAITING_FOR_CATEGORY && message.hasText()) {
             return handleCategorySelection(chatId, text, profileOpt);
         }
 
-        // Step 6: Tajriba
         if (state == JobSeekerState.WAITING_FOR_EXPERIENCE && message.hasText()) {
             return handleExperienceInput(chatId, text, profileOpt);
         }
 
-        // ===== ISMNI TAHRIRLASH =====
         if (state == JobSeekerState.WAITING_FOR_EDIT_NAME && message.hasText()) {
             return handleEditName(chatId, text, profileOpt);
         }
 
-        // ===== COVER LETTER =====
         if (state == JobSeekerState.APPLY_COMMENT && message.hasText()) {
             return handleApplyComment(chatId, text, profileOpt);
         }
@@ -338,46 +336,94 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return handleSettingsMenu(chatId, text, profileOpt);
         }
 
-        // ===== JOB_SEARCH HOLATI =====
         if (state == JobSeekerState.JOB_SEARCH) {
             return null;
         }
 
-        // ===== VAKANSIYA TANLANGANDA =====
         if (state == JobSeekerState.VIEW_JOB_DETAILS) {
             return handleViewJobDetails(chatId, text, profileOpt);
         }
 
-        // ===== PROFIL MENYUSI =====
         if (state == JobSeekerState.PROFILE_MENU) {
             return handleProfileMenu(chatId, text, profileOpt);
         }
 
-        // ===== HAMYON MENYUSI =====
         if (state == JobSeekerState.WALLET_MENU) {
             return handleWalletMenu(chatId, text, profileOpt);
         }
 
+
         // ===== FAOL ISHLAR =====
         if (state == JobSeekerState.ACTIVE_JOBS) {
-            if (text.contains("Joriy ishlar") || text.contains("Текущие работы") || text.contains("Current jobs") ||
-                    text.contains("Topshiriqlar") || text.contains("Задания") || text.contains("Tasks") ||
+            // 1. Joriy (Qabul qilingan) ishlar
+            if (text.contains("Joriy ishlar") || text.contains("Текущие работы") || text.contains("Current jobs")) {
+                if (profileOpt.isEmpty()) {
+                    return createHtmlMessage(chatId, "❌ Profil topilmadi!", keyboardService.getActiveJobsKeyboard(profileOpt));
+                }
+
+                Long seekerId = profileOpt.get().getId();
+
+                List<JobApplication> activeJobs = jobApplicationRepository.findByJobSeekerId(seekerId).stream()
+                        .filter(app -> app.getStatus() == JobApplication.ApplicationStatus.ACCEPTED)
+                        .toList();
+
+                if (activeJobs.isEmpty()) {
+                    String msg = getText(profileOpt, chatId,
+                            "📋 На данный момент у вас нет активных работ.",
+                            "📋 Hozircha qabul qilingan faol ishlaringiz mavjud emas.",
+                            "📋 You have no active jobs at the moment."
+                    );
+                    return createHtmlMessage(chatId, msg, keyboardService.getActiveJobsKeyboard(profileOpt));
+                }
+
+                StringBuilder sb = new StringBuilder();
+                sb.append(getText(profileOpt, chatId,
+                        "💼 <b>Ваши текущие (активные) работы:</b>\n\n",
+                        "💼 <b>Sizning joriy (faol) ishlaringiz:</b>\n\n",
+                        "💼 <b>Your current active jobs:</b>\n\n"
+                ));
+
+                List<JobVacancy> allVacancies = jobStore.getAllVacancies();
+                int counter = 1;
+                for (JobApplication app : activeJobs) {
+                    JobVacancy vac = allVacancies.stream()
+                            .filter(v -> v.getId().equals(app.getJobId()))
+                            .findFirst()
+                            .orElse(null);
+
+                    String vacTitle = vac != null ? vac.getTitle() : "Vakansiya #" + app.getJobId();
+                    String company = (vac != null && vac.getCompanyName() != null) ? vac.getCompanyName() : "Ko'rsatilmagan";
+                    String salary = (vac != null && vac.getSalary() != null) ? vac.getSalary() : "Kelishilgan holda";
+                    String phone = (vac != null && vac.getPhoneNumber() != null) ? vac.getPhoneNumber() : "Mavjud emas";
+
+                    sb.append(counter++).append(". 📌 <b>").append(escapeHtml(vacTitle)).append("</b>\n")
+                            .append("🏢 <b>Kompaniya:</b> ").append(escapeHtml(company)).append("\n")
+                            .append("💰 <b>Maosh:</b> ").append(escapeHtml(salary)).append("\n")
+                            .append("📞 <b>Bog'lanish:</b> <code>").append(escapeHtml(phone)).append("</code>\n")
+                            .append("✅ <b>Holat:</b> Ishga qabul qilingan\n")
+                            .append("───────────────\n");
+                }
+
+                return createHtmlMessage(chatId, sb.toString(), keyboardService.getActiveJobsKeyboard(profileOpt));
+            }
+
+            // 2. Vazifalar va topshiriqlar
+            if (text.contains("Topshiriqlar") || text.contains("Задания") || text.contains("Tasks") ||
                     text.contains("Vazifalar") || text.contains("Задачи") || text.contains("Assignments")) {
                 String msg = getText(profileOpt, chatId,
-                        "📋 На данный момент у вас нет активных работ.",
-                        "📋 Hozircha faol ishlaringiz mavjud emas.",
-                        "📋 You have no active jobs at the moment."
+                        "📝 У вас пока нет назначенных задач.",
+                        "📝 Hozircha sizga berilgan faol vazifalar yoki topshiriqlar mavjud emas.",
+                        "📝 You have no assigned tasks yet."
                 );
-                return createMessage(chatId, msg, keyboardService.getActiveJobsKeyboard(profileOpt));
+                return createHtmlMessage(chatId, msg, keyboardService.getActiveJobsKeyboard(profileOpt));
             }
         }
 
-        // ===== SOZLAMALAR =====
+
         if (state == JobSeekerState.SETTINGS_MENU) {
             return handleSettingsMenu(chatId, text, profileOpt);
         }
 
-        // ===== DEFAULT =====
         String defaultMsg = getText(profileOpt, chatId,
                 "Пожалуйста, выберите один из вариантов.",
                 "Iltimos, tugmalardan birini tanlang.",
@@ -389,7 +435,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     // ============================================
     // YORDAMCHI HANDLER METODLARI
     // ============================================
-
     private SendMessage handleRegistrationStart(Long chatId, Optional<JobSeekerProfile> profileOpt) {
         if (profileOpt.isPresent()) {
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
@@ -1173,8 +1218,9 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     }
 
     // ============================================
-    // ARIZALAR METODLARI
+    // ARIZALAR METODLARI (BOSQICHLARNI TO'LIQ KO'RSATISH)
     // ============================================
+
     @Override
     public SendMessage handleShowApplications(Long chatId, Optional<JobSeekerProfile> profileOpt) {
         if (profileOpt.isEmpty()) {
@@ -1183,7 +1229,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     "📂 Arizalaringizni ko'rish uchun avval ro'yxatdan o'ting.",
                     "📂 To view your applications, please register first."
             );
-            return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
+            return createHtmlMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
         Long jobSeekerId = profileOpt.get().getId();
@@ -1195,13 +1241,13 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     "📂 Siz hali hech qanday vakansiyaga ariza topshirmagansiz.",
                     "📂 You have not submitted any applications yet."
             );
-            return createMessage(chatId, msg, keyboardService.getSubBackKeyboard(profileOpt));
+            return createHtmlMessage(chatId, msg, keyboardService.getSubBackKeyboard(profileOpt));
         }
 
         String title = getText(profileOpt, chatId,
-                "📋 **Ваши заявки:**\n\n",
-                "📋 **Siz yuborgan arizalar:**\n\n",
-                "📋 **Your applications:**\n\n"
+                "📋 <b>Ваши заявки:</b>\n\n",
+                "📋 <b>Siz yuborgan arizalar:</b>\n\n",
+                "📋 <b>Your applications:</b>\n\n"
         );
         StringBuilder sb = new StringBuilder(title);
         List<JobVacancy> allVacancies = jobStore.getAllVacancies();
@@ -1215,34 +1261,40 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             String statusStr;
             if (isRussian(profileOpt)) {
                 statusStr = switch (app.getStatus()) {
-                    case PENDING -> "⏳ Ko'rib chiqilmoqda";
-                    case ACCEPTED -> "✅ Qabul qilindi";
-                    case REJECTED -> "❌ Rad etildi";
-                    case CANCELLED -> "🚫 Bekor qilingan";
+                    case PENDING -> "⏳ Ожидание (Работодатель еще не открыл)";
+                    case VIEWED -> "👁 Просмотрено (Ожидается ответ)";
+                    case INTERVIEW -> "📅 Приглашение на собеседование!";
+                    case ACCEPTED -> "✅ Принято на работу!";
+                    case REJECTED -> "❌ Отклонено";
+                    case CANCELLED -> "🚫 Отменено";
                 };
             } else if (isEnglish(profileOpt)) {
                 statusStr = switch (app.getStatus()) {
-                    case PENDING -> "⏳ Pending";
-                    case ACCEPTED -> "✅ Accepted";
+                    case PENDING -> "⏳ Pending (Not opened yet)";
+                    case VIEWED -> "👁 Viewed (Waiting for response)";
+                    case INTERVIEW -> "📅 Invited to interview!";
+                    case ACCEPTED -> "✅ Accepted!";
                     case REJECTED -> "❌ Rejected";
                     case CANCELLED -> "🚫 Cancelled";
                 };
             } else {
                 statusStr = switch (app.getStatus()) {
-                    case PENDING -> "⏳ Ko'rib chiqilmoqda";
-                    case ACCEPTED -> "✅ Qabul qilindi";
+                    case PENDING -> "⏳ Kutilmoqda (Ish beruvchi hali ochmadi)";
+                    case VIEWED -> "👁 Ko'rib chiqildi (Javob kutilmoqda)";
+                    case INTERVIEW -> "📅 Suhbatga chaqirildingiz!";
+                    case ACCEPTED -> "✅ Ishga qabul qilindingiz!";
                     case REJECTED -> "❌ Rad etildi";
                     case CANCELLED -> "🚫 Bekor qilingan";
                 };
             }
 
-            sb.append("📌 **Vakansiya:** ").append(jobTitle).append("\n")
-                    .append("✍️ **Cover letter:** ").append(app.getCoverLetter() != null ? app.getCoverLetter() : "Yo'q").append("\n")
-                    .append("📊 **Holat:** ").append(statusStr).append("\n")
+            sb.append("📌 <b>Vakansiya:</b> ").append(escapeHtml(jobTitle)).append("\n")
+                    .append("✍️ <b>Cover letter:</b> ").append(escapeHtml(app.getCoverLetter() != null ? app.getCoverLetter() : "Yo'q")).append("\n")
+                    .append("📊 <b>Holat:</b> ").append(statusStr).append("\n")
                     .append("───────────────\n");
         }
 
-        return createMessage(chatId, sb.toString(), keyboardService.getSubBackKeyboard(profileOpt));
+        return createHtmlMessage(chatId, sb.toString(), keyboardService.getSubBackKeyboard(profileOpt));
     }
 
     // ============================================
@@ -1540,7 +1592,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             String categoryKey = callbackData.substring("category_".length());
             Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
 
-            // PaginationService orqali qidirish
             SendMessage response = paginationService.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
             return response;
         }
@@ -1588,16 +1639,14 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         return null;
     }
+
     @Override
     public SendMessage handleVacancyPagination(Long chatId, String categoryKey, int page, Optional<JobSeekerProfile> profileOpt) {
-        // PaginationService'ga yo'naltiramiz:
         return paginationService.handleVacancyPagination(chatId, categoryKey, page, profileOpt);
     }
 
     @Override
     public ReplyKeyboard getCategoryInlineKeyboard(Optional<Object> empty) {
-        // KeyboardService'ga yo'naltiramiz:
         return keyboardService.getCategoryInlineKeyboard(Optional.empty());
     }
-
 }

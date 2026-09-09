@@ -4,6 +4,7 @@ package uz.imaan.jobplatform.jobseeker.service.impl;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.imaan.jobplatform.jobseeker.dto.BankCardRequest;
@@ -149,6 +150,7 @@ public class WalletServiceImpl implements WalletService {
 
     @Override
     @Transactional
+    @PreAuthorize("#userId == authentication.principal.userId")
     public String withdrawMoney(Long userId, BigDecimal amount) {
         log.info("💸 Pul yechish: userId={}, amount={}", userId, amount);
 

@@ -11,13 +11,14 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PostAuthorize;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import uz.imaan.jobplatform.jobseeker.dto.*;
 import uz.imaan.jobplatform.jobseeker.entity.JobApplication;
 import uz.imaan.jobplatform.jobseeker.service.interfaces.JobSeekerService;
 
 import java.util.List;
-
 
 @Slf4j
 @RestController
@@ -35,9 +36,12 @@ public class JobSeekerController {
             description = "Foydalanuvchi ID si bo'yicha profil ma'lumotlarini qaytaradi.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Profil muvaffaqiyatli topildi"),
+            @ApiResponse(responseCode = "403", description = "Ruxsat etilmagan"),
             @ApiResponse(responseCode = "404", description = "Foydalanuvchi profili topilmadi")
     })
     @GetMapping("/profile")
+    @PreAuthorize("hasAnyRole('JOB_SEEKER', 'ADMIN')")
+    @PostAuthorize("hasRole('ADMIN') or returnObject.body.userId == authentication.principal.userId")
     public ResponseEntity<JobSeekerProfileDto> getProfile(
             @RequestHeader("X-User-Id") Long userId) {
         log.info("GET /api/v1/job-seeker/profile - userId: {}", userId);
@@ -50,9 +54,11 @@ public class JobSeekerController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Profil muvaffaqiyatli yangilandi"),
             @ApiResponse(responseCode = "400", description = "Xato ma'lumot yuborildi"),
+            @ApiResponse(responseCode = "403", description = "Birovning profilini yangilash taqiqlanadi"),
             @ApiResponse(responseCode = "404", description = "Foydalanuvchi profili topilmadi")
     })
     @PutMapping("/profile")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<JobSeekerProfileDto> updateProfile(
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody UpdateProfileRequest request) {
@@ -62,16 +68,18 @@ public class JobSeekerController {
     }
 
     // ============================================
-    // 2. RESUME ENDPOINTS (YANGI QO'SHILDI)
+    // 2. RESUME ENDPOINTS
     // ============================================
 
     @Operation(summary = "Yangi rezyume yaratish",
             description = "Ish izlovchi o'z rezyumesini yaratadi.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Rezyume muvaffaqiyatli yaratildi"),
-            @ApiResponse(responseCode = "400", description = "Xato ma'lumot yuborildi")
+            @ApiResponse(responseCode = "400", description = "Xato ma'lumot yuborildi"),
+            @ApiResponse(responseCode = "403", description = "Ruxsat berilmagan")
     })
     @PostMapping("/resume")
+    @PreAuthorize("hasRole('JOB_SEEKER') and #userId == authentication.principal.userId")
     public ResponseEntity<ResumeDto> createResume(
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody CreateResumeRequest request) {
@@ -83,6 +91,7 @@ public class JobSeekerController {
     @Operation(summary = "Rezyumeni yangilash",
             description = "Mavjud rezyume ma'lumotlarini yangilaydi.")
     @PutMapping("/resume/{resumeId}")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<ResumeDto> updateResume(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long resumeId,
@@ -94,6 +103,7 @@ public class JobSeekerController {
     @Operation(summary = "Rezyumeni o'chirish",
             description = "Rezyume ID si bo'yicha rezyumeni o'chiradi.")
     @DeleteMapping("/resume/{resumeId}")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<Void> deleteResume(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long resumeId) {
@@ -105,6 +115,7 @@ public class JobSeekerController {
     @Operation(summary = "Rezyumeni aktiv qilish",
             description = "Tanlangan rezyumeni aktiv holatga o'tkazadi.")
     @PatchMapping("/resume/{resumeId}/activate")
+    @PreAuthorize("hasRole('JOB_SEEKER') and #userId == authentication.principal.userId")
     public ResponseEntity<Void> setActiveResume(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long resumeId) {
@@ -116,6 +127,7 @@ public class JobSeekerController {
     @Operation(summary = "Barcha rezyumelar ro'yxati",
             description = "Foydalanuvchining barcha rezyumelarini qaytaradi.")
     @GetMapping("/resume")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<List<ResumeDto>> getMyResumes(
             @RequestHeader("X-User-Id") Long userId) {
         log.info("GET /api/v1/job-seeker/resume - userId: {}", userId);
@@ -125,6 +137,7 @@ public class JobSeekerController {
     @Operation(summary = "Aktiv rezyumeni olish",
             description = "Foydalanuvchining aktiv rezyumesini qaytaradi.")
     @GetMapping("/resume/active")
+    @PreAuthorize("hasAnyRole('JOB_SEEKER', 'EMPLOYER', 'ADMIN')")
     public ResponseEntity<ResumeDto> getActiveResume(
             @RequestHeader("X-User-Id") Long userId) {
         log.info("GET /api/v1/job-seeker/resume/active - userId: {}", userId);
@@ -135,6 +148,8 @@ public class JobSeekerController {
     @Operation(summary = "Rezyume ID bo'yicha olish",
             description = "Rezyume ID si bo'yicha rezyume ma'lumotlarini qaytaradi.")
     @GetMapping("/resume/{resumeId}")
+    @PreAuthorize("hasAnyRole('JOB_SEEKER', 'EMPLOYER', 'ADMIN')")
+    @PostAuthorize("hasAnyRole('EMPLOYER', 'ADMIN') or returnObject.body == null or #userId == authentication.principal.userId")
     public ResponseEntity<ResumeDto> getResumeById(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long resumeId) {
@@ -143,7 +158,7 @@ public class JobSeekerController {
     }
 
     // ============================================
-    // 3. JOB APPLICATION ENDPOINTS (MAVJUD)
+    // 3. JOB APPLICATION ENDPOINTS
     // ============================================
 
     @Operation(summary = "Vakansiyaga ariza topshirish",
@@ -151,9 +166,11 @@ public class JobSeekerController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "Ariza muvaffaqiyatli topshirildi"),
             @ApiResponse(responseCode = "400", description = "Xato ma'lumot yuborildi yoki takroriy ariza"),
+            @ApiResponse(responseCode = "403", description = "Faqat nomzod o'z nomidan ariza topshira oladi"),
             @ApiResponse(responseCode = "404", description = "Vakansiya topilmadi")
     })
     @PostMapping("/apply")
+    @PreAuthorize("hasRole('JOB_SEEKER') and #userId == authentication.principal.userId")
     public ResponseEntity<JobApplication> applyForJob(
             @RequestHeader("X-User-Id") Long userId,
             @Valid @RequestBody ApplyJobRequest request) {
@@ -165,6 +182,7 @@ public class JobSeekerController {
     @Operation(summary = "Topshirilgan arizalar ro'yxatini olish (Paginatsiya bilan)",
             description = "Foydalanuvchi tomonidan topshirilgan barcha arizalarni sahifalab qaytaradi.")
     @GetMapping("/applications")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<Page<JobApplication>> getMyApplicationsWithPagination(
             @RequestHeader("X-User-Id") Long userId,
             @PageableDefault(size = 10, sort = "createdAt") Pageable pageable) {
@@ -177,6 +195,7 @@ public class JobSeekerController {
     @Operation(summary = "Topshirilgan arizalar ro'yxati (DTO)",
             description = "Foydalanuvchi topshirgan barcha arizalar ro'yxatini DTO sifatida qaytaradi.")
     @GetMapping("/applications/list")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<List<JobApplicationDto>> getMyApplications(
             @RequestHeader("X-User-Id") Long userId) {
         log.info("GET /api/v1/job-seeker/applications/list - userId: {}", userId);
@@ -187,6 +206,7 @@ public class JobSeekerController {
     @Operation(summary = "Qabul qilingan faol ishlarim",
             description = "Ish beruvchi tomonidan qabul qilingan (ACCEPTED) faol ishlar ro'yxati.")
     @GetMapping("/applications/active")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<List<JobApplication>> getMyActiveJobs(
             @RequestHeader("X-User-Id") Long userId) {
         log.info("GET /api/v1/job-seeker/applications/active - userId: {}", userId);
@@ -202,6 +222,7 @@ public class JobSeekerController {
             @ApiResponse(responseCode = "404", description = "Ariza topilmadi")
     })
     @DeleteMapping("/applications/{applicationId}")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<Void> cancelApplication(
             @RequestHeader("X-User-Id") Long userId,
             @PathVariable Long applicationId) {
@@ -211,12 +232,13 @@ public class JobSeekerController {
     }
 
     // ============================================
-    // 4. SETTINGS ENDPOINTS (YANGI QO'SHILDI)
+    // 4. SETTINGS ENDPOINTS
     // ============================================
 
     @Operation(summary = "Sozlamalarni yangilash",
             description = "Foydalanuvchi sozlamalarini yangilaydi.")
     @PatchMapping("/settings")
+    @PreAuthorize("hasRole('ADMIN') or (hasRole('JOB_SEEKER') and #userId == authentication.principal.userId)")
     public ResponseEntity<Void> updateSettings(
             @RequestHeader("X-User-Id") Long userId,
             @RequestBody SettingsUpdateRequest request) {

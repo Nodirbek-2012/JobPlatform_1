@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import uz.imaan.jobplatform.feign.TestFeignClient;
@@ -51,6 +52,7 @@ public class JobSeekerServiceImpl implements JobSeekerService {
 
     @Override
     @Transactional(readOnly = true)
+    @PostAuthorize("returnObject.userId == authentication.principal.userId or hasRole('ADMIN')")
     public JobSeekerProfileDto getProfileByUserId(Long userId) {
         log.info("📋 Profil olish: userId={}", userId);
         JobSeekerProfile profile = profileRepository.findByUserId(userId)

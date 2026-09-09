@@ -1,7 +1,6 @@
 package uz.imaan.jobplatform.jobseeker.entity;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.*;
@@ -15,7 +14,6 @@ import java.time.LocalDateTime;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-
 public class JobApplication {
 
     @Id
@@ -30,7 +28,7 @@ public class JobApplication {
     @Column(name = "job_seeker_id", nullable = false)
     private Long jobSeekerId;
 
-    @Size(max = 1000, message = "Cover letter 1000 belgidan oshmasligi kerak  ")
+    @Size(max = 1000, message = "Cover letter 1000 belgidan oshmasligi kerak")
     @Column(name = "cover_letter", length = 1000)
     private String coverLetter;
 
@@ -45,12 +43,13 @@ public class JobApplication {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-
     public enum ApplicationStatus {
-        PENDING,
-        ACCEPTED,
-        REJECTED,
-        CANCELLED
+        PENDING,      // ⏳ Kutilmoqda
+        VIEWED,       // 👁 Ish beruvchi ko'rib chiqdi
+        INTERVIEW,    // 📅 Suhbatga chaqirildi
+        ACCEPTED,     // ✅ Qabul qilindi
+        REJECTED,     // ❌ Rad etildi
+        CANCELLED     // 🚫 Nomzod bekor qildi
     }
 
     @PrePersist
@@ -63,5 +62,4 @@ public class JobApplication {
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
-
 }

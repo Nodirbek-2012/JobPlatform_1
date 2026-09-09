@@ -100,37 +100,31 @@ public class KeyboardServiceImpl implements KeyboardService {
             all = "🌐 Barcha vakansiyalar";
         }
 
-        // Qator 1
         List<InlineKeyboardButton> row1 = new ArrayList<>();
         row1.add(InlineKeyboardButton.builder().text(it).callbackData("category_it").build());
         row1.add(InlineKeyboardButton.builder().text(design).callbackData("category_design").build());
         rows.add(row1);
 
-        // Qator 2
         List<InlineKeyboardButton> row2 = new ArrayList<>();
         row2.add(InlineKeyboardButton.builder().text(construction).callbackData("category_construction").build());
         row2.add(InlineKeyboardButton.builder().text(driver).callbackData("category_driver").build());
         rows.add(row2);
 
-        // Qator 3
         List<InlineKeyboardButton> row3 = new ArrayList<>();
         row3.add(InlineKeyboardButton.builder().text(education).callbackData("category_education").build());
         row3.add(InlineKeyboardButton.builder().text(trade).callbackData("category_trade").build());
         rows.add(row3);
 
-        // Qator 4
         List<InlineKeyboardButton> row4 = new ArrayList<>();
         row4.add(InlineKeyboardButton.builder().text(cleaner).callbackData("category_cleaner").build());
         row4.add(InlineKeyboardButton.builder().text(cook).callbackData("category_cook").build());
         rows.add(row4);
 
-        // Qator 5
         List<InlineKeyboardButton> row5 = new ArrayList<>();
         row5.add(InlineKeyboardButton.builder().text(security).callbackData("category_security").build());
         row5.add(InlineKeyboardButton.builder().text(courier).callbackData("category_courier").build());
         rows.add(row5);
 
-        // Qator 6
         List<InlineKeyboardButton> row6 = new ArrayList<>();
         row6.add(InlineKeyboardButton.builder().text(all).callbackData("category_all").build());
         rows.add(row6);
@@ -140,7 +134,7 @@ public class KeyboardServiceImpl implements KeyboardService {
     }
 
     // ============================================
-    // ASOSIY MENYU ("⭐ Saralanganlar" qo'shildi)
+    // ASOSIY MENYU
     // ============================================
     @Override
     public ReplyKeyboardMarkup getMainMenuKeyboard(Optional<JobSeekerProfile> profileOpt) {
@@ -641,7 +635,7 @@ public class KeyboardServiceImpl implements KeyboardService {
         // 1-qator: Ariza topshirish
         InlineKeyboardButton applyBtn = new InlineKeyboardButton();
         applyBtn.setText(applyText);
-        applyBtn.setCallbackData("apply_vac_" + vacancyId);
+        applyBtn.setCallbackData("apply_" + vacancyId);
 
         // 2-qator: Saralash (Toggle)
         InlineKeyboardButton favBtn = new InlineKeyboardButton();
@@ -660,22 +654,30 @@ public class KeyboardServiceImpl implements KeyboardService {
         return buildVacancyActionKeyboard(vacancyId, isFav, Optional.empty());
     }
 
+
     @Override
     public InlineKeyboardMarkup buildFavoritesPaginationKeyboard(int currentPage, int totalPages, Long vacancyId, Optional<JobSeekerProfile> profileOpt) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
+        String applyText = getText(profileOpt, "✍️ Подать заявку", "✍️ Ariza topshirish", "✍️ Apply now");
         String removeText = getText(profileOpt, "❌ Удалить из избранного", "❌ Ro'yxatdan o'chirish", "❌ Remove from favorites");
         String prevText = getText(profileOpt, "⬅️ Назад", "⬅️ Oldingi", "⬅️ Previous");
         String nextText = getText(profileOpt, "Вперед ➡️", "Keyingi ➡️", "Next ➡️");
 
-        // 1-qator: Ro'yxatdan o'chirish
+        // 1-qator: ✍️ Ariza topshirish
+        InlineKeyboardButton applyBtn = new InlineKeyboardButton();
+        applyBtn.setText(applyText);
+        applyBtn.setCallbackData("apply_" + vacancyId);
+        rows.add(List.of(applyBtn));
+
+        // 2-qator: ❌ Ro'yxatdan o'chirish
         InlineKeyboardButton removeBtn = new InlineKeyboardButton();
         removeBtn.setText(removeText);
-        removeBtn.setCallbackData("fav_toggle_" + vacancyId);
+        removeBtn.setCallbackData("fav_remove_" + vacancyId + "_" + currentPage);
         rows.add(List.of(removeBtn));
 
-        // 2-qator: Sahifalash (Paginatsiya)
+        // 3-qator: Sahifalash (agar 1 tadan ko'p ish bo'lsa)
         if (totalPages > 1) {
             List<InlineKeyboardButton> navRow = new ArrayList<>();
 
