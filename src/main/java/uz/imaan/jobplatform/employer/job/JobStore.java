@@ -14,10 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class JobStore {
 
     private final JobVacancyRepository vacancyRepository;
-
     private final Map<Long, EmployerState> userStates = new ConcurrentHashMap<>();
-
-    // Record immutable bo'lgani uchun Builder saqlaymiz
     private final Map<Long, EmployerCreateDTO.EmployerCreateDTOBuilder> draftBuilders = new ConcurrentHashMap<>();
 
     public EmployerState getState(Long chatId) {
@@ -31,10 +28,6 @@ public class JobStore {
     public EmployerCreateDTO.EmployerCreateDTOBuilder getBuilder(Long chatId) {
         return draftBuilders.computeIfAbsent(chatId, k -> EmployerCreateDTO.builder());
     }
-
-    // ============================================
-    // VAKANSIYA BILAN ISHLASH (Repository orqali)
-    // ============================================
 
     public void addVacancy(JobVacancy vacancy) {
         vacancyRepository.save(vacancy);

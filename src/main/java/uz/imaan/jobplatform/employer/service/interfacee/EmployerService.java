@@ -5,7 +5,6 @@ import org.telegram.telegrambots.meta.api.objects.Message;
 import uz.imaan.jobplatform.employer.dto.EmployerCreateDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerResponseDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerUpdateDTO;
-
 import java.util.List;
 
 public interface EmployerService {

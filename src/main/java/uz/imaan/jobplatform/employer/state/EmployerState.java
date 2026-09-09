@@ -18,5 +18,6 @@ public enum EmployerState {
         WAITING_FOR_SALARY,
         WAITING_FOR_REQUIREMENTS,
         WAITING_FOR_PHONE,
+        WAITING_FOR_PASSPORT,
         NONE
 }

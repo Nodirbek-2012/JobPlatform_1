@@ -1,26 +1,25 @@
 package uz.imaan.jobplatform.employer.repository;
 
-import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.repository.query.Param; // <-- To'g'ri import
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.stereotype.Repository;
 import uz.imaan.jobplatform.employer.entity.EmployerEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface EmployerRepository extends JpaRepository<EmployerEntity, Long> {
 
-    // Исправленный метод
-    Optional<EmployerEntity> findByTelegramId(Long telegramId);
+    @Query("SELECT e FROM EmployerEntity e WHERE e.employerChatId = :tgId OR e.id = :tgId")
+    static List<EmployerEntity> findByTgId(@Param("tgId") Long tgId) {
+        return null;
+    }
 
-    // Или используем @Query
-    @Query("SELECT e FROM EmployerEntity e WHERE e.telegramId = :telegramId")
-    Optional<EmployerEntity> findByTgId(@Param("telegramId") Long telegramId);
+    List<EmployerEntity> findByStatus(String status);
 
-    // Проверка существования
-    boolean existsByTelegramId(Long telegramId);
+    Optional<EmployerEntity> findByEmployerChatId(Long employerChatId);
 
-    // Поиск по номеру телефона
-    Optional<EmployerEntity> findByPhoneNumber(String phoneNumber);
+    boolean existsByInn(String inn);
 }
