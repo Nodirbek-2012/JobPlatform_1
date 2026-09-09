@@ -25,12 +25,17 @@ import uz.imaan.jobplatform.employer.job.JobVacancy;
 import uz.imaan.jobplatform.jobseeker.dto.FavoriteVacancyDto;
 import uz.imaan.jobplatform.jobseeker.entity.JobApplication;
 import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
+import uz.imaan.jobplatform.jobseeker.entity.JobSeekerReview;
 import uz.imaan.jobplatform.jobseeker.repository.JobApplicationRepository;
 import uz.imaan.jobplatform.jobseeker.repository.JobSeekerProfileRepository;
+import uz.imaan.jobplatform.jobseeker.repository.JobSeekerReviewRepository;
 import uz.imaan.jobplatform.jobseeker.service.interfaces.FavoriteVacancyService;
+import uz.imaan.jobplatform.telegram.JobSeekerHandler.JobSeekerState;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.JobSeekerHandler;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.KeyboardService;
+import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.StateManager;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +59,8 @@ public class Telegram extends TelegramLongPollingBot {
     private final JobApplicationRepository jobApplicationRepository;
     private final FavoriteVacancyService favoriteVacancyService;
     private final KeyboardService keyboardService;
+    private final StateManager stateManager;
+    private final JobSeekerReviewRepository jobSeekerReviewRepository;
 
     private final Map<Long, UserRole> userRoles = new ConcurrentHashMap<>();
 
@@ -66,6 +73,8 @@ public class Telegram extends TelegramLongPollingBot {
             JobApplicationRepository jobApplicationRepository,
             FavoriteVacancyService favoriteVacancyService,
             KeyboardService keyboardService,
+            StateManager stateManager,
+            JobSeekerReviewRepository jobSeekerReviewRepository,
             @Value("8449248126:AAFPgTpsBD2o1k_cp8YbG8_wqp9o8KnRCss") String botToken) {
         super(botToken);
         this.jobSeekerHandler = jobSeekerHandler;
@@ -75,6 +84,8 @@ public class Telegram extends TelegramLongPollingBot {
         this.jobApplicationRepository = jobApplicationRepository;
         this.favoriteVacancyService = favoriteVacancyService;
         this.keyboardService = keyboardService;
+        this.stateManager = stateManager;
+        this.jobSeekerReviewRepository = jobSeekerReviewRepository;
         log.info("✅ Telegram bot ishga tushdi!");
     }
 
@@ -248,11 +259,51 @@ public class Telegram extends TelegramLongPollingBot {
                     return;
                 }
 
-                // 🔍 KATEGORIYA BOSILGANDA
+                // 🔍 KATEGORIYA BOSILGANDA (RO'YXATDAN O'TISH + QIDIRUV)
                 if (callbackData.startsWith("category_")) {
                     sendAnswerCallback(callbackQuery.getId(), null, false);
                     String categoryKey = callbackData.replace("category_", "");
                     Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
+                    JobSeekerState state = stateManager.getState(chatId);
+
+                    // ⭐️ A) Ro'yxatdan o'tishda Kategoriya tanlangan bo'lsa:
+                    if (state == JobSeekerState.WAITING_FOR_CATEGORY) {
+                        String categoryName = getCategoryNameByKey(categoryKey);
+                        stateManager.putData(chatId, "category", categoryName);
+                        stateManager.putData(chatId, "profession", categoryName);
+                        stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EXPERIENCE);
+
+                        String expPrompt = switch (profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz")) {
+                            case "ru" -> "📝 <b>Расскажите о своем опыте работы:</b>\n\nСколько времени вы работаете?\n💡 <i>Пример:</i> <code>3 года Java разработчиком</code>";
+                            case "en" -> "📝 <b>Tell us about your work experience:</b>\n\nHow long have you been working?\n💡 <i>Example:</i> <code>3 years Java developer</code>";
+                            default -> "📝 <b>Ish tajribangiz haqida ma'lumot bering:</b>\n\nQancha vaqtdan beri ishlayapsiz?\n💡 <i>Misol:</i> <code>3 yil Java dasturchi</code>";
+                        };
+
+                        SendMessage expMsg = new SendMessage(chatId.toString(), expPrompt);
+                        expMsg.setParseMode("HTML");
+                        expMsg.setReplyMarkup(keyboardService.getCancelKeyboard(profileOpt));
+                        executeMessage(expMsg);
+                        return;
+                    }
+
+                    // ⭐️ B) Profil sozlamalarida Kasb yangilanayotgan bo'lsa:
+                    if (state == JobSeekerState.WAITING_FOR_PROFESSION) {
+                        String categoryName = getCategoryNameByKey(categoryKey);
+                        if (profileOpt.isPresent()) {
+                            JobSeekerProfile profile = profileOpt.get();
+                            profile.setProfession(categoryName);
+                            profile.setCategory(categoryName);
+                            jobSeekerProfileRepository.save(profile);
+                        }
+                        stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
+                        SendMessage okMsg = new SendMessage(chatId.toString(), "✅ Kasb yangilandi: <b>" + categoryName + "</b>");
+                        okMsg.setParseMode("HTML");
+                        okMsg.setReplyMarkup(keyboardService.getProfileKeyboard(profileOpt));
+                        executeMessage(okMsg);
+                        return;
+                    }
+
+                    // ⭐️ C) Oddiy ish qidirish:
                     SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
                     if (response != null) {
                         executeMessage(response);
@@ -314,7 +365,6 @@ public class Telegram extends TelegramLongPollingBot {
                                 profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "Kiritilmagan",
                                 "uz"
                         );
-                        // Ish beruvchiga arizani boshqarish tugmalarini ulaymiz
                         notifyMsg.setReplyMarkup(buildApplicationTrackingKeyboard(savedApp.getId(), chatId));
                         executeMessage(notifyMsg);
                     }
@@ -325,12 +375,11 @@ public class Telegram extends TelegramLongPollingBot {
                 }
 
                 // ============================================
-                // 📊 APPLICATION TRACKING (BOSQICHLARNI BOSHQARISH)
+                // 📊 APPLICATION TRACKING
                 // ============================================
                 if (callbackData.startsWith("app_status_")) {
                     sendAnswerCallback(callbackQuery.getId(), null, false);
 
-                    // Format: app_status_{action}_{appId}_{seekerChatId}
                     String[] parts = callbackData.replace("app_status_", "").split("_");
                     String action = parts[0];
                     Long appId = Long.parseLong(parts[1]);
@@ -377,7 +426,7 @@ public class Telegram extends TelegramLongPollingBot {
                         }
                         case "accept" -> {
                             app.setStatus(JobApplication.ApplicationStatus.ACCEPTED);
-                            employerStatusText = "✅ <b>Nomzod ishga qabul qilindi!</b>";
+                            employerStatusText = "✅ <b>Nomzod ishga qabul qilindi!</b>\n\n⭐️ <b>Nomzodni baholang:</b>\nUshbu xodim bilan muloqot va hamkorlikni qanday baholaysiz?";
                             seekerNotificationText = String.format("""
                                     🏆 <b>Tabriklaymiz! Siz ishga qabul qilindingiz!</b>
                                     
@@ -403,21 +452,22 @@ public class Telegram extends TelegramLongPollingBot {
 
                     jobApplicationRepository.save(app);
 
-                    // 1. Ish beruvchining xabarini yangilash
                     EditMessageText editEmployerMsg = new EditMessageText();
                     editEmployerMsg.setChatId(chatId.toString());
                     editEmployerMsg.setMessageId(messageId);
                     editEmployerMsg.setText(employerStatusText);
                     editEmployerMsg.setParseMode("HTML");
-                    // Yakuniy qaror bo'lsa tugmalar olib tashlanadi, aks holda boshqaruv davom etadi
-                    if (!isFinalDecision) {
+
+                    // ⭐️ Qabul qilinganda yulduzcha tugmalari chiqariladi:
+                    if ("accept".equals(action)) {
+                        editEmployerMsg.setReplyMarkup(buildRatingKeyboard(appId));
+                    } else if (!isFinalDecision) {
                         editEmployerMsg.setReplyMarkup(buildApplicationTrackingKeyboard(appId, seekerChatId));
                     } else {
                         editEmployerMsg.setReplyMarkup(null);
                     }
                     executeEditMessage(editEmployerMsg);
 
-                    // 2. Nomzodga (JobSeeker) bildirishnoma yuborish
                     SendMessage notifySeeker = new SendMessage();
                     notifySeeker.setChatId(seekerChatId.toString());
                     notifySeeker.setText(seekerNotificationText);
@@ -427,15 +477,117 @@ public class Telegram extends TelegramLongPollingBot {
                     return;
                 }
 
+                // ============================================
+                // ⭐ REYTING VA BAHOLASHNI SAQLASH
+                // ============================================
+                if (callbackData.startsWith("rate_")) {
+                    String[] parts = callbackData.replace("rate_", "").split("_");
+                    Long appId = Long.parseLong(parts[0]);
+                    int stars = Integer.parseInt(parts[1]);
+
+                    // Qayta baholashning oldini olish
+                    if (jobSeekerReviewRepository.existsByApplicationId(appId)) {
+                        sendAnswerCallback(callbackQuery.getId(), "⚠️ Siz ushbu nomzodni allaqachon baholagansiz!", true);
+                        return;
+                    }
+
+                    Optional<JobApplication> appOpt = jobApplicationRepository.findById(appId);
+                    if (appOpt.isEmpty()) {
+                        sendAnswerCallback(callbackQuery.getId(), "❌ Ariza topilmadi!", true);
+                        return;
+                    }
+
+                    JobApplication app = appOpt.get();
+                    Long seekerId = app.getJobSeekerId();
+
+                    // 1. Bahoni saqlash
+                    JobSeekerReview review = JobSeekerReview.builder()
+                            .jobSeekerId(seekerId)
+                            .employerChatId(chatId)
+                            .applicationId(appId)
+                            .rating(stars)
+                            .createdAt(LocalDateTime.now())
+                            .build();
+                    jobSeekerReviewRepository.save(review);
+
+                    // 2. Yangi o'rtacha reytingni hisoblash
+                    List<JobSeekerReview> allReviews = jobSeekerReviewRepository.findByJobSeekerId(seekerId);
+                    double avgRating = allReviews.stream()
+                            .mapToInt(JobSeekerReview::getRating)
+                            .average()
+                            .orElse(0.0);
+                    avgRating = Math.round(avgRating * 10.0) / 10.0; // 1 xona aniqlikda yaxlitlash (masalan 4.8)
+
+                    // 3. Nomzod profilini yangilash
+                    Optional<JobSeekerProfile> seekerProfileOpt = jobSeekerProfileRepository.findById(seekerId);
+                    if (seekerProfileOpt.isPresent()) {
+                        JobSeekerProfile seekerProfile = seekerProfileOpt.get();
+                        seekerProfile.setRating(avgRating);
+                        seekerProfile.setReviewCount(allReviews.size());
+                        jobSeekerProfileRepository.save(seekerProfile);
+
+                        // 4. Nomzodga bildirishnoma jo'natish
+                        Long seekerChatId = seekerProfile.getUserId();
+                        if (seekerChatId != null) {
+                            String starEmojis = "⭐".repeat(stars);
+                            String seekerMsg = String.format("""
+                                    ⭐️ <b>Ish beruvchi sizga baho berdi!</b>
+                                    
+                                    Qo'yilgan baho: %s (<b>%d / 5</b>)
+                                    Sizning yangi umumiy reytingingiz: <b>⭐ %.1f / 5.0</b> (%d ta baho)
+                                    """, starEmojis, stars, avgRating, allReviews.size());
+
+                            SendMessage notifyMsg = new SendMessage(seekerChatId.toString(), seekerMsg);
+                            notifyMsg.setParseMode("HTML");
+                            executeMessage(notifyMsg);
+                        }
+                    }
+
+                    sendAnswerCallback(callbackQuery.getId(), "⭐️ Bahoyingiz qabul qilindi!", false);
+
+                    // 5. Ish beruvchining xabarini yangilash va tugmalarni yopish
+                    String starEmojis = "⭐".repeat(stars);
+                    EditMessageText editEmployerMsg = new EditMessageText();
+                    editEmployerMsg.setChatId(chatId.toString());
+                    editEmployerMsg.setMessageId(messageId);
+                    editEmployerMsg.setText(String.format("✅ <b>Nomzod ishga qabul qilindi!</b>\n\n⭐️ <b>Sizning bahoyingiz:</b> %s (%d ta yulduzcha)\nBaholaganingiz uchun rahmat!", starEmojis, stars));
+                    editEmployerMsg.setParseMode("HTML");
+                    editEmployerMsg.setReplyMarkup(null);
+                    executeEditMessage(editEmployerMsg);
+                    return;
+                }
+
+                // 🌐 TIL TANLANGANDA (RO'YXATDAN O'TISH + SOZLAMALAR)
                 if (callbackData.startsWith("lang_")) {
+                    sendAnswerCallback(callbackQuery.getId(), null, false);
                     String language = callbackData.replace("lang_", "");
                     jobSeekerHandler.updateLanguage(chatId, language);
 
+                    JobSeekerState state = stateManager.getState(chatId);
+
+                    // ⭐️ A) Ro'yxatdan o'tayotgan bo'lsa -> Darhol Ism so'rashga o'tadi:
+                    if (state == JobSeekerState.WAITING_FOR_LANGUAGE || "true".equals(stateManager.getData(chatId, "registration"))) {
+                        stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
+                        stateManager.removeData(chatId, "registration");
+
+                        String namePrompt = switch (language) {
+                            case "ru" -> "👤 <b>Регистрация в качестве соискателя:</b>\n\nВведите ваше имя и фамилию.\n💡 <i>Пример:</i> <code>Ali Valiyev</code>";
+                            case "en" -> "👤 <b>Registration as a job seeker:</b>\n\nPlease enter your first and last name.\n💡 <i>Example:</i> <code>Ali Valiyev</code>";
+                            default -> "👤 <b>Ish izlovchi sifatida ro'yxatdan o'tish:</b>\n\nIltimos, ism va familiyangizni kiriting.\n💡 <i>Misol:</i> <code>Ali Valiyev</code>";
+                        };
+
+                        SendMessage nameMsg = new SendMessage(chatId.toString(), namePrompt);
+                        nameMsg.setParseMode("HTML");
+                        executeMessage(nameMsg);
+                        return;
+                    }
+
+                    // ⭐️ B) Sozlamalardan til o'zgartirilganda:
                     String responseText = switch (language) {
                         case "uz" -> "✅ Til O'zbek tiliga o'zgartirildi!";
                         case "ru" -> "✅ Язык изменен на Русский!";
                         case "en" -> "✅ Language changed to English!";
-                        default -> "❌ Noto'g'ri tanlov!";
+                        default -> "✅";
                     };
 
                     SendMessage response = new SendMessage();
@@ -500,25 +652,61 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ============================================
+    // ISH BERUVCHI UCHUN BAHOLASH TUGMALARI (1 - 5)
+    // ============================================
+    private InlineKeyboardMarkup buildRatingKeyboard(Long applicationId) {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+        List<InlineKeyboardButton> starRow = new ArrayList<>();
+
+        for (int i = 1; i <= 5; i++) {
+            InlineKeyboardButton btn = new InlineKeyboardButton();
+            btn.setText("⭐ " + i);
+            btn.setCallbackData("rate_" + applicationId + "_" + i);
+            starRow.add(btn);
+        }
+
+        rows.add(starRow);
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    // ============================================
+    // KATEGORIYA KEY ORQALI NOMI ANIQLASH
+    // ============================================
+    private String getCategoryNameByKey(String key) {
+        return switch (key) {
+            case "it" -> "IT & Dasturlash";
+            case "design" -> "Dizayn";
+            case "construction" -> "Qurilish";
+            case "driver" -> "Haydovchi / Kuryer";
+            case "education" -> "Ta'lim / Repetitor";
+            case "trade" -> "Savdo / Sotuvchi";
+            case "cleaner" -> "Farrosh / Tozalash";
+            case "cook" -> "Pazanda / Oshpaz";
+            case "security" -> "Qorovul / Xavfsizlik";
+            case "courier" -> "Kuryer / Yetkazib berish";
+            default -> "Barcha vakansiyalar";
+        };
+    }
+
+    // ============================================
     // ISH BERUVCHI UCHUN ARIZANI TRACKING TUGMALARI
     // ============================================
     private InlineKeyboardMarkup buildApplicationTrackingKeyboard(Long applicationId, Long seekerChatId) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        // 1-qator: Ko'rib chiqildi
         InlineKeyboardButton viewBtn = new InlineKeyboardButton();
         viewBtn.setText("👁 Ko'rib chiqildi");
         viewBtn.setCallbackData("app_status_view_" + applicationId + "_" + seekerChatId);
         rows.add(List.of(viewBtn));
 
-        // 2-qator: Suhbatga chaqirish
         InlineKeyboardButton interviewBtn = new InlineKeyboardButton();
         interviewBtn.setText("📅 Suhbatga chaqirish");
         interviewBtn.setCallbackData("app_status_interview_" + applicationId + "_" + seekerChatId);
         rows.add(List.of(interviewBtn));
 
-        // 3-qator: Qabul qilish va Rad etish
         InlineKeyboardButton acceptBtn = new InlineKeyboardButton();
         acceptBtn.setText("✅ Qabul qilish");
         acceptBtn.setCallbackData("app_status_accept_" + applicationId + "_" + seekerChatId);
@@ -539,19 +727,16 @@ public class Telegram extends TelegramLongPollingBot {
         InlineKeyboardMarkup cardKeyboard = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        // 1-qator: Ariza topshirish
         InlineKeyboardButton applyBtn = new InlineKeyboardButton();
         applyBtn.setText("✍️ Ariza topshirish");
         applyBtn.setCallbackData("apply_" + vacancyId);
         rows.add(List.of(applyBtn));
 
-        // 2-qator: Saralanganlarga saqlash / O'chirish
         InlineKeyboardButton favBtn = new InlineKeyboardButton();
         favBtn.setText(isFav ? "🌟 Saqlangan (O'chirish)" : "⭐ Saralanganlarga saqlash");
         favBtn.setCallbackData("fav_toggle_" + vacancyId + "_" + categoryKey + "_" + returnPage);
         rows.add(List.of(favBtn));
 
-        // 3-qator: Ro'yxatga qaytish
         InlineKeyboardButton backBtn = new InlineKeyboardButton();
         backBtn.setText("⬅️ Ro'yxatga qaytish");
         backBtn.setCallbackData("vacancy_page_" + categoryKey + "_" + returnPage);
@@ -597,7 +782,6 @@ public class Telegram extends TelegramLongPollingBot {
 
         FavoriteVacancyDto item = page.getContent().get(0);
 
-        // Vakansiyaning to'liq ma'lumotlarini (Talablar, Kompaniya, Telefon) olamiz
         JobVacancy vacancy = jobStore.getAllVacancies().stream()
                 .filter(v -> v.getId().equals(item.vacancyId()))
                 .findFirst()
@@ -715,7 +899,6 @@ public class Telegram extends TelegramLongPollingBot {
             executeMessage(sendMsg);
         }
     }
-
 
     private String escapeHtml(String text) {
         if (text == null) return "";

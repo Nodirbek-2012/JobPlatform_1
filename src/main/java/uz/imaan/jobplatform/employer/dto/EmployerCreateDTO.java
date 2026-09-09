@@ -14,13 +14,13 @@ public record EmployerCreateDTO(
         @Pattern(regexp = "^[0-9]{9}$", message = "INN 9 ta raqamdan iborat bo'lishi kerak")
         String inn,
 
-        // Pasport seriyasi: 2 ta KATTA harf va 7 ta raqam (Masalan: AA1234567)
         @NotBlank(message = "Pasport ma'lumotlari kiritilishi shart")
         @Pattern(regexp = "^[A-Z]{2}[0-9]{7}$", message = "Pasport seriyasi faqat katta harf va 7 ta raqamdan iborat bo'lishi kerak (masalan: AA1234567)")
         String passportSeriesNumber,
 
         @NotBlank(message = "Telefon raqam bo'sh bo'lmasligi kerak")
-        @Pattern(regexp = "^998[0-9]{9}$", message = "Telefon raqam noto'g'ri (masalan: 998901234567)")
+        // ===== O'ZGARTIRILDI: Faqat +998 bilan boshlanadigan 9 ta raqam =====
+        @Pattern(regexp = "^\\+998[0-9]{9}$", message = "Telefon raqam +998 bilan boshlanib, 9 ta raqamdan iborat bo'lishi kerak (masalan: +998901234567)")
         String phoneNumber,
 
         @NotBlank(message = "Ish sarlavhasi kiritilishi shart")

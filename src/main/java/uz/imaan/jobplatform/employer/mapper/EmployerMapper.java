@@ -16,7 +16,7 @@ public class EmployerMapper {
                 .inn(dto.inn())
                 .passportSeriesNumber(dto.passportSeriesNumber())
                 .phoneNumber(dto.phoneNumber())
-                .title(dto.title()) // 📌 Title qo'shildi
+                .title(dto.title())
                 .category(dto.category())
                 .jobType(dto.jobType())
                 .salary(dto.salary())
@@ -40,7 +40,7 @@ public class EmployerMapper {
                 .passportSeriesNumber(entity.getPassportSeriesNumber())
                 .fullName(entity.getFullName())
                 .phoneNumber(entity.getPhoneNumber())
-                .title(entity.getTitle()) // 📌 Title qo'shildi
+                .title(entity.getTitle())
                 .category(entity.getCategory())
                 .jobType(entity.getJobType())
                 .salary(entity.getSalary())

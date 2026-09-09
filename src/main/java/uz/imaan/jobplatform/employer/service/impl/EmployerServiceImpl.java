@@ -21,6 +21,7 @@ import uz.imaan.jobplatform.employer.service.interfacee.EmployerService;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
@@ -31,13 +32,19 @@ public class EmployerServiceImpl implements EmployerService {
     private final EmployerMapper mapper;
     private final JobStore jobStore;
 
+    // Validatsiya uchun regex qoliplari
+    private static final Pattern PASSPORT_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
+    // ===== O'ZGARTIRILDI: Faqat +998 bilan boshlanadigan 9 ta raqam =====
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+998[0-9]{9}$");
+    private static final Pattern SALARY_PATTERN = Pattern.compile("^[0-9]+$");
+
     @Override
     public SendMessage handleEmployer(Message message) {
         Long chatId = message.getChatId();
         String text = message.getText();
         EmployerState currentState = jobStore.getState(chatId);
 
-        // 1. "Employer (Ish beruvchi)" bosilganda to'g'ridan-to'g'ri katta menyuni ochamiz
+        // 1. "Employer (Ish beruvchi)" bosilganda menyuni ochamiz
         if (text != null && text.equals("Employer (Ish beruvchi)")) {
             jobStore.clear(chatId);
             jobStore.setState(chatId, EmployerState.EMPLOYER_MAIN_MENU);
@@ -69,33 +76,65 @@ public class EmployerServiceImpl implements EmployerService {
             return createMessage(chatId, sb.toString());
         }
 
+        if (currentState == null) {
+            currentState = EmployerState.EMPLOYER_MAIN_MENU;
+            jobStore.setState(chatId, currentState);
+        }
+
         switch (currentState) {
             case WAITING_FOR_TITLE:
-                jobStore.getBuilder(chatId).title(text);
+                if (text == null || text.trim().length() < 3) {
+                    return createMessage(chatId, "❌ Sarlavha kamida 3 ta belgidan iborat bo'lishi kerak. Qaytadan kiriting:");
+                }
+                jobStore.getBuilder(chatId).title(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_CATEGORY);
                 return createCategoryMenu(chatId);
 
             case WAITING_FOR_CATEGORY:
-                jobStore.getBuilder(chatId).category(text);
+                jobStore.getBuilder(chatId).category(text.trim());
+                jobStore.setState(chatId, EmployerState.WAITING_FOR_PASSPORT);
+                return createMessage(chatId, "🪪 **Pasport seria va raqamini kiriting:**\n\n💡 *Misol:* `AA1234567`");
+
+            case WAITING_FOR_PASSPORT:
+                if (text == null || !PASSPORT_PATTERN.matcher(text.trim()).matches()) {
+                    return createMessage(chatId, "❌ **Pasport formati noto'g'ri!**\n\n" +
+                            "Iltimos, 2 ta katta lotin harfi va 7 ta raqam kiriting.\n" +
+                            "💡 *Misol:* `AA1234567`");
+                }
+                jobStore.getBuilder(chatId).passportSeriesNumber(text.trim());
+                jobStore.setState(chatId, EmployerState.WAITING_FOR_PHONE);
+                return createMessage(chatId, "📞 **Telefon raqamingizni yuboring:**\n\n💡 *Misol:* `+998901234567`");
+
+            case WAITING_FOR_PHONE:
+                if (text == null || !PHONE_PATTERN.matcher(text.trim()).matches()) {
+                    return createMessage(chatId, "❌ **Telefon raqam formati noto'g'ri!**\n\n" +
+                            "Iltimos, +998 bilan boshlanuvchi 9 ta raqam kiriting.\n" +
+                            "💡 *Misol:* `+998901234567`");
+                }
+                jobStore.getBuilder(chatId).phoneNumber(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_SALARY);
                 return createMessage(chatId, "💰 **Maosh miqdorini raqamlarda kiriting:**\n\n*Misol:* 8000000");
 
             case WAITING_FOR_SALARY:
-                jobStore.getBuilder(chatId).salary(text);
+                if (text == null || !SALARY_PATTERN.matcher(text.trim()).matches()) {
+                    return createMessage(chatId, "❌ Maosh faqat musbat raqamlardan iborat bo'lishi kerak. Qaytadan kiriting:");
+                }
+                jobStore.getBuilder(chatId).salary(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_WORK_HOURS);
                 return createMessage(chatId, "⏰ **Ish soatini raqamda kiriting:**\n\n*Misol:* 8");
 
             case WAITING_FOR_WORK_HOURS:
-                jobStore.getBuilder(chatId).workHours(text);
+                if (text == null || !SALARY_PATTERN.matcher(text.trim()).matches()) {
+                    return createMessage(chatId, "❌ Ish soati faqat raqam bo'lishi kerak. Qaytadan kiriting:");
+                }
+                jobStore.getBuilder(chatId).workHours(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_REQUIREMENTS);
                 return createMessage(chatId, "📋 **Talablarni kiriting:**\n\n*Misol:* 1 yil tajriba, Ingliz tili");
 
             case WAITING_FOR_REQUIREMENTS:
                 EmployerCreateDTO draft = jobStore.getBuilder(chatId)
-                        .requirements(text)
+                        .requirements(text != null ? text.trim() : "")
                         .employerChatId(chatId)
-                        .passportSeriesNumber("AA1234567")
-                        .phoneNumber("998901234567")
                         .jobType("To'liq bandlik")
                         .workerCount(1)
                         .build();
@@ -107,6 +146,8 @@ public class EmployerServiceImpl implements EmployerService {
                 return createMessage(chatId, "🎉 **E'loningiz muvaffaqiyatli e'lon qilindi!**\n\n" +
                         "📌 **Nomi:** " + draft.title() + "\n" +
                         "📂 **Kategoriya:** " + draft.category() + "\n" +
+                        "🪪 **Pasport:** " + draft.passportSeriesNumber() + "\n" +
+                        "📞 **Tel:** " + draft.phoneNumber() + "\n" +
                         "💰 **Maosh:** " + draft.salary() + "\n" +
                         "⏰ **Ish vaqti:** " + draft.workHours() + "\n" +
                         "📋 **Talablar:** " + draft.requirements());
@@ -116,7 +157,6 @@ public class EmployerServiceImpl implements EmployerService {
         }
     }
 
-    // 🏢 Ish beruvchining asosiy (katta) menyusi
     private SendMessage createEmployerMainMenu(Long chatId) {
         SendMessage sendMessage = new SendMessage();
         sendMessage.setChatId(chatId.toString());
@@ -128,7 +168,6 @@ public class EmployerServiceImpl implements EmployerService {
         markup.setOneTimeKeyboard(false);
 
         List<KeyboardRow> keyboard = new ArrayList<>();
-
         KeyboardRow row1 = new KeyboardRow();
         row1.add(new KeyboardButton("➕ Yangi e'lon yaratish"));
         row1.add(new KeyboardButton("📋 Mening vakansiyalarim"));
@@ -155,7 +194,6 @@ public class EmployerServiceImpl implements EmployerService {
         markup.setOneTimeKeyboard(true);
 
         List<KeyboardRow> keyboard = new ArrayList<>();
-
         String[] categories = {
                 "💻 IT & Dasturlash", "🏗 Qurilish & Ta'mirlash",
                 "🏭 Ishlab chiqarish", "🛒 Savdo & Sotuv",
