@@ -26,8 +26,8 @@ public class EmployerEntity {
     private String title;
     private String category;
     private String jobType;
-    private String salary;         // String formatida
-    private String workHours;      // String formatida
+    private String salary;
+    private String workHours;
     private String requirements;
     private String status;
     private LocalDateTime createdAt;
@@ -42,5 +42,8 @@ public class EmployerEntity {
     private Double longitude;
     private String language;
     private String companyName;
-    private Long telegramId;// To'g'ri camelCase formatda
+    private Long telegramId;
+
+    // ===== YANGI FIELD =====
+    private Integer age;
 }
