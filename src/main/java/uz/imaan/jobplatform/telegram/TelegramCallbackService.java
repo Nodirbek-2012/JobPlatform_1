@@ -198,15 +198,19 @@ public class TelegramCallbackService {
         if (response != null) bot.executeMessage(response);
     }
 
+
     private void handleLanguageSelection(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
         bot.sendAnswerCallback(callbackQuery.getId(), null, false);
         String language = callbackQuery.getData().replace("lang_", "");
         jobSeekerHandler.updateLanguage(chatId, language);
 
         JobSeekerState state = stateManager.getState(chatId);
+        Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
 
-        // Agar ro'yxatdan o'tayotgan bo'lsa darhol ism so'rashga o'tadi
-        if (state == JobSeekerState.WAITING_FOR_LANGUAGE || "true".equals(stateManager.getData(chatId, "registration"))) {
+        // ⭐️ Agar bazada profil bo'lmasa YOKI ism kiritilmagan bo'lsa -> Darhol Ro'yxatdan o'tish (Ism so'rash)ga o'tadi
+        boolean isNewUser = profileOpt.isEmpty() || profileOpt.get().getFullName() == null || profileOpt.get().getFullName().isBlank();
+
+        if (isNewUser || state == JobSeekerState.WAITING_FOR_LANGUAGE || "true".equals(stateManager.getData(chatId, "registration"))) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
             stateManager.removeData(chatId, "registration");
 
@@ -222,6 +226,7 @@ public class TelegramCallbackService {
             return;
         }
 
+        // ⭐️ Faqat avval ro'yxatdan o'tgan foydalanuvchilar sozlamadan til almashtirganda:
         String responseText = switch (language) {
             case "uz" -> "✅ Til O'zbek tiliga o'zgartirildi!";
             case "ru" -> "✅ Язык изменен на Русский!";
