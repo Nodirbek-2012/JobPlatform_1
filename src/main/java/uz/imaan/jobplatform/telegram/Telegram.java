@@ -716,7 +716,7 @@ public class Telegram extends TelegramLongPollingBot {
         return markup;
     }
 
-    private void executeMessage(SendMessage message) {
+    public void executeMessage(SendMessage message) {
         try {
             execute(message);
         } catch (TelegramApiException e) {
@@ -724,7 +724,7 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
-    private void executeEditMessage(EditMessageText message) {
+    public void executeEditMessage(EditMessageText message) {
         try {
             execute(message);
         } catch (TelegramApiException e) {
@@ -732,7 +732,7 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
-    private void executeEditReplyMarkup(EditMessageReplyMarkup markup) {
+    public void executeEditReplyMarkup(EditMessageReplyMarkup markup) {
         try {
             execute(markup);
         } catch (TelegramApiException e) {
@@ -740,7 +740,7 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
-    private void sendAnswerCallback(String callbackQueryId, String text, boolean showAlert) {
+    public void sendAnswerCallback(String callbackQueryId, String text, boolean showAlert) {
         try {
             AnswerCallbackQuery answer = new AnswerCallbackQuery();
             answer.setCallbackQueryId(callbackQueryId);
