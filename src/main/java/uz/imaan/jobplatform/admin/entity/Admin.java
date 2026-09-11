@@ -26,7 +26,7 @@ public class Admin {
     private String username;
     private String role; // e.g. "ROLE_ADMIN", "SUPER_ADMIN"
     private Boolean isActive;
-    private String phonenumber;
+    private String phoneNumber;
 
     public void setName(String name) {
         this.name = name;

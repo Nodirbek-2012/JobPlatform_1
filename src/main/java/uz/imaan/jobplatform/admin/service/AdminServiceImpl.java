@@ -224,7 +224,7 @@ public class AdminServiceImpl extends AdminService {
         }
 
         Optional<JobSeekerProfile> workerOpt = jobSeekerProfileRepository.findByTelegramId(targetTgId);
-        Optional<EmployerEntity> employerOpt = employerRepository.findByTelegramId(targetTgId);
+        Optional<EmployerEntity> employerOpt = employerRepository.findById(targetTgId);
 
         if (workerOpt.isEmpty() && employerOpt.isEmpty()) {
             log.info("User with ID {} not found in database", targetTgId);
