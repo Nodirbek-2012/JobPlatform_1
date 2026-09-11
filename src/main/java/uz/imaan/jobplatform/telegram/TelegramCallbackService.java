@@ -56,8 +56,16 @@ public class TelegramCallbackService {
         log.info("📩 Callback: chatId={}, data={}", chatId, callbackData);
 
         try {
-            // 0. Ish beruvchi kategoriyalari
-            if (callbackData != null && callbackData.startsWith("emp_cat_")) {
+            // ============================================
+            // 0. ISH BERUVCHI CALLBACKLARI (BARCHASI)
+            // ============================================
+            if (callbackData != null && (
+                    callbackData.startsWith("emp_cat_") ||
+                            callbackData.startsWith("emp_app_status_") ||
+                            callbackData.startsWith("vac_edit_") ||
+                            callbackData.startsWith("vac_delete_") ||
+                            callbackData.startsWith("vac_toggle_")
+            )) {
                 SendMessage response = employerHandler.handleCallback(callbackQuery);
                 if (response != null) bot.executeMessage(response);
                 return;
@@ -101,7 +109,7 @@ public class TelegramCallbackService {
                 return;
             }
 
-            // 6. Kategoriya tanlash (Qidiruv yoki Ro'yxatdan o'tish)
+            // 6. Kategoriya tanlash
             if (callbackData.startsWith("category_")) {
                 handleCategoryClick(callbackQuery, chatId, bot);
                 return;
@@ -117,25 +125,25 @@ public class TelegramCallbackService {
                 return;
             }
 
-            // 8. Ariza topshirish
+            // 8. Ariza topshirish (JobSeeker)
             if (callbackData.startsWith("apply_")) {
                 handleApply(callbackQuery, chatId, bot);
                 return;
             }
 
-            // 9. Ariza bosqichlarini o'zgartirish (Employer)
+            // 9. Eski app_status_ (eski bildirishnoma)
             if (callbackData.startsWith("app_status_")) {
                 handleApplicationStatus(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 10. Reyting / Baholash (1 - 5)
+            // 10. Reyting
             if (callbackData.startsWith("rate_")) {
                 handleRating(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 11. Til tanlash
+            // 11. Til
             if (callbackData.startsWith("lang_")) {
                 handleLanguageSelection(callbackQuery, chatId, bot);
                 return;
@@ -156,7 +164,6 @@ public class TelegramCallbackService {
         Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
         JobSeekerState state = stateManager.getState(chatId);
 
-        // A) Ro'yxatdan o'tishda tanlangan bo'lsa
         if (state == JobSeekerState.WAITING_FOR_CATEGORY) {
             String categoryName = getCategoryNameByKey(categoryKey);
             stateManager.putData(chatId, "category", categoryName);
@@ -176,7 +183,6 @@ public class TelegramCallbackService {
             return;
         }
 
-        // B) Profil ichida kasb almashtirilayotgan bo'lsa
         if (state == JobSeekerState.WAITING_FOR_PROFESSION) {
             String categoryName = getCategoryNameByKey(categoryKey);
             if (profileOpt.isPresent()) {
@@ -193,11 +199,9 @@ public class TelegramCallbackService {
             return;
         }
 
-        // C) Oddiy ish qidirish
         SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
         if (response != null) bot.executeMessage(response);
     }
-
 
     private void handleLanguageSelection(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
         bot.sendAnswerCallback(callbackQuery.getId(), null, false);
@@ -205,12 +209,8 @@ public class TelegramCallbackService {
         jobSeekerHandler.updateLanguage(chatId, language);
 
         JobSeekerState state = stateManager.getState(chatId);
-        Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
 
-        // ⭐️ Agar bazada profil bo'lmasa YOKI ism kiritilmagan bo'lsa -> Darhol Ro'yxatdan o'tish (Ism so'rash)ga o'tadi
-        boolean isNewUser = profileOpt.isEmpty() || profileOpt.get().getFullName() == null || profileOpt.get().getFullName().isBlank();
-
-        if (isNewUser || state == JobSeekerState.WAITING_FOR_LANGUAGE || "true".equals(stateManager.getData(chatId, "registration"))) {
+        if (state == JobSeekerState.WAITING_FOR_LANGUAGE || "true".equals(stateManager.getData(chatId, "registration"))) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
             stateManager.removeData(chatId, "registration");
 
@@ -226,7 +226,6 @@ public class TelegramCallbackService {
             return;
         }
 
-        // ⭐️ Faqat avval ro'yxatdan o'tgan foydalanuvchilar sozlamadan til almashtirganda:
         String responseText = switch (language) {
             case "uz" -> "✅ Til O'zbek tiliga o'zgartirildi!";
             case "ru" -> "✅ Язык изменен на Русский!";
@@ -641,7 +640,6 @@ public class TelegramCallbackService {
         return markup;
     }
 
-    // ⭐️ To'g'rilangan metod: Long vacancyId qabul qiladi va xatolik bermaydi
     private InlineKeyboardMarkup buildVacancyDetailMarkup(Long vacancyId, boolean isFav, String categoryKey, int returnPage) {
         JobVacancy vacancy = jobStore.getAllVacancies().stream()
                 .filter(v -> v.getId().equals(vacancyId))
