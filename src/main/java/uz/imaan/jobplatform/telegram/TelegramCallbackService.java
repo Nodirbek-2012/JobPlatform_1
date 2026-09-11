@@ -462,19 +462,25 @@ public class TelegramCallbackService {
         }
 
         boolean isFav = favoriteVacancyService.isFavorite(chatId, vacancyId);
+        boolean isExternal = vacancy.getSourceUrl() != null && !vacancy.getSourceUrl().isBlank();
+
+        String phoneText = (vacancy.getPhoneNumber() != null && !vacancy.getPhoneNumber().isBlank())
+                ? vacancy.getPhoneNumber()
+                : (isExternal ? "Havola orqali ko'ring" : "Ariza qabul qilingach beriladi");
+
         String cardText = String.format("""
                 📌 <b>%s</b>
                 
-                🏢 <b>Kompaniya:</b> %s
+                🏢 <b>Kompaniya / Manba:</b> %s
                 📂 <b>Kategoriya:</b> %s
                 🕒 <b>Bandlik turi:</b> %s
                 ⏱ <b>Ish vaqti:</b> %s
                 💰 <b>Maosh:</b> %s
                 
-                📝 <b>Talablar:</b>
+                📝 <b>Talablar va ma'lumot:</b>
                 %s
                 
-                📞 <b>Bog'lanish:</b> %s
+                📞 <b>Bog'lanish:</b> <code>%s</code>
                 """,
                 escapeHtml(vacancy.getTitle()),
                 escapeHtml(vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan"),
@@ -483,7 +489,7 @@ public class TelegramCallbackService {
                 escapeHtml(vacancy.getWorkHours() != null ? vacancy.getWorkHours() : "Kelishuv asosida"),
                 escapeHtml(vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishiladi"),
                 escapeHtml(vacancy.getRequirements() != null ? vacancy.getRequirements() : "Ko'rsatilmadi"),
-                escapeHtml(vacancy.getPhoneNumber() != null ? vacancy.getPhoneNumber() : "Ariza topshirilgach beriladi")
+                escapeHtml(phoneText)
         );
 
         EditMessageText editMsg = new EditMessageText();
@@ -630,14 +636,29 @@ public class TelegramCallbackService {
         return markup;
     }
 
+    // ⭐️ To'g'rilangan metod: Long vacancyId qabul qiladi va xatolik bermaydi
     private InlineKeyboardMarkup buildVacancyDetailMarkup(Long vacancyId, boolean isFav, String categoryKey, int returnPage) {
+        JobVacancy vacancy = jobStore.getAllVacancies().stream()
+                .filter(v -> v.getId().equals(vacancyId))
+                .findFirst()
+                .orElse(null);
+
         InlineKeyboardMarkup cardKeyboard = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        InlineKeyboardButton applyBtn = new InlineKeyboardButton();
-        applyBtn.setText("✍️ Ariza topshirish");
-        applyBtn.setCallbackData("apply_" + vacancyId);
-        rows.add(List.of(applyBtn));
+        boolean isExternal = vacancy != null && vacancy.getSourceUrl() != null && !vacancy.getSourceUrl().isBlank();
+
+        if (isExternal) {
+            InlineKeyboardButton openUrlBtn = new InlineKeyboardButton();
+            openUrlBtn.setText("🌐 E'lonni ochish va bog'lanish");
+            openUrlBtn.setUrl(vacancy.getSourceUrl());
+            rows.add(List.of(openUrlBtn));
+        } else {
+            InlineKeyboardButton applyBtn = new InlineKeyboardButton();
+            applyBtn.setText("✍️ Ariza topshirish");
+            applyBtn.setCallbackData("apply_" + vacancyId);
+            rows.add(List.of(applyBtn));
+        }
 
         InlineKeyboardButton favBtn = new InlineKeyboardButton();
         favBtn.setText(isFav ? "🌟 Saqlangan (O'chirish)" : "⭐ Saralanganlarga saqlash");
