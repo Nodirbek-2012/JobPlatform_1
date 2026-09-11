@@ -10,4 +10,6 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
     List<JobVacancy> findByEmployerChatId(Long chatId);
 
     List<JobVacancy> findAllByEmployerChatId(Long chatId);
+
+    boolean existsByExternalId(String externalId);
 }

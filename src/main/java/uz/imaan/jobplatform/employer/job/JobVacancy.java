@@ -29,4 +29,10 @@ public class JobVacancy {
     private String phoneNumber;
     private Boolean isActive;
     private String companyName;
+
+    @Column(name = "external_id", unique = true)
+    private String externalId; // Masalan: "olx_12345678"
+
+    @Column(name = "source_url")
+    private String sourceUrl;  // OLX dagi asl havola
 }
