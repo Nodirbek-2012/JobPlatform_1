@@ -362,42 +362,58 @@ public class KeyboardServiceImpl implements KeyboardService {
     // ============================================
     // PROFIL MENYUSI
     // ============================================
+    // ⭐️ 1. Profil menyusi (Kasb alohida emas, Tahrirlash ichida bo'ladi)
     @Override
     public ReplyKeyboardMarkup getProfileKeyboard(Optional<JobSeekerProfile> profileOpt) {
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
         markup.setResizeKeyboard(true);
 
+        List<KeyboardRow> keyboard = new ArrayList<>();
+
         KeyboardRow row1 = new KeyboardRow();
+        row1.add(new KeyboardButton("🖼 Rasm"));
+        row1.add(new KeyboardButton("📁 Portfolio"));
+        row1.add(new KeyboardButton("⭐ Reyting"));
+
         KeyboardRow row2 = new KeyboardRow();
+        row2.add(new KeyboardButton("✏️ Tahrirlash")); // Barcha o'zgartirishlar shu yerda
+
         KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton("⬅️ Orqaga")); // Asosiy menyuga qaytish
 
-        if (isRussian(profileOpt)) {
-            row1.add("📊 Информация");
-            row1.add("📁 Портфолио");
-            row1.add("⭐ Рейтинг");
-            row2.add("🖼 Фото");
-            row2.add("💼 Профессия");
-            row2.add("✏️ Редактировать");
-            row3.add("⬅️ Назад");
-        } else if (isEnglish(profileOpt)) {
-            row1.add("📊 Information");
-            row1.add("📁 Portfolio");
-            row1.add("⭐ Rating");
-            row2.add("🖼 Photo");
-            row2.add("💼 Profession");
-            row2.add("✏️ Edit");
-            row3.add("⬅️ Back");
-        } else {
-            row1.add("📊 Ma'lumotlar");
-            row1.add("📁 Portfolio");
-            row1.add("⭐ Reyting");
-            row2.add("🖼 Rasm");
-            row2.add("💼 Kasb");
-            row2.add("✏️ Tahrirlash");
-            row3.add("⬅️ Orqaga");
-        }
+        keyboard.add(row1);
+        keyboard.add(row2);
+        keyboard.add(row3);
+        markup.setKeyboard(keyboard);
+        return markup;
+    }
 
-        markup.setKeyboard(List.of(row1, row2, row3));
+    // ⭐️ 2. Yangi: Tahrirlash ichki menyusi
+    public ReplyKeyboardMarkup getEditProfileKeyboard() {
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
+        markup.setResizeKeyboard(true);
+
+        List<KeyboardRow> keyboard = new ArrayList<>();
+
+        KeyboardRow row1 = new KeyboardRow();
+        row1.add(new KeyboardButton("👤 Ism-familiya"));
+        row1.add(new KeyboardButton("🪪 Pasport"));
+
+        KeyboardRow row2 = new KeyboardRow();
+        row2.add(new KeyboardButton("💼 Kasb"));
+        row2.add(new KeyboardButton("📝 Ish tajribasi"));
+
+        KeyboardRow row3 = new KeyboardRow();
+        row3.add(new KeyboardButton("📞 Telefon raqam"));
+
+        KeyboardRow row4 = new KeyboardRow();
+        row4.add(new KeyboardButton("⬅️ Profilga qaytish")); // Profilga qaytaradi
+
+        keyboard.add(row1);
+        keyboard.add(row2);
+        keyboard.add(row3);
+        keyboard.add(row4);
+        markup.setKeyboard(keyboard);
         return markup;
     }
 
