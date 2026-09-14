@@ -1,9 +1,10 @@
 package uz.imaan.jobplatform.employer.mapper;
 
-import uz.imaan.jobplatform.employer.entity.EmployerEntity;
 import org.springframework.stereotype.Component;
 import uz.imaan.jobplatform.employer.dto.EmployerCreateDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerResponseDTO;
+import uz.imaan.jobplatform.employer.dto.EmployerUpdateDTO;
+import uz.imaan.jobplatform.employer.entity.EmployerEntity;
 
 @Component
 public class EmployerMapper {
@@ -12,21 +13,21 @@ public class EmployerMapper {
         if (dto == null) return null;
 
         return EmployerEntity.builder()
-                .employerChatId(dto.employerChatId())
-                .inn(dto.inn())
-                .passportSeriesNumber(dto.passportSeriesNumber())
-                .phoneNumber(dto.phoneNumber())
-                .title(dto.title())
-                .category(dto.category())
-                .jobType(dto.jobType())
-                .salary(dto.salary())
-                .workHours(dto.workHours())
-                .jobDate(dto.jobDate())
-                .workerCount(dto.workerCount())
-                .requirements(dto.requirements())
-                .foodProvided(dto.foodProvided())
-                .latitude(dto.latitude())
-                .longitude(dto.longitude())
+                .employerChatId(dto.getEmployerChatId())
+                .inn(dto.getInn())
+                .passportSeriesNumber(dto.getPassportSeriesNumber())
+                .phoneNumber(dto.getPhoneNumber())
+                .title(dto.getTitle())
+                .category(dto.getCategory())
+                .jobType(dto.getJobType())
+                .salary(dto.getSalary())
+                .workHours(dto.getWorkHours())
+                .jobDate(dto.getJobDate())
+                .workerCount(dto.getWorkerCount())
+                .requirements(dto.getRequirements())
+                .foodProvided(dto.getFoodProvided())
+                .latitude(dto.getLatitude())
+                .longitude(dto.getLongitude())
                 .build();
     }
 
@@ -54,5 +55,21 @@ public class EmployerMapper {
                 .status(entity.getStatus())
                 .createdAt(entity.getCreatedAt())
                 .build();
+    }
+
+    public void updateEntityFromDto(EmployerUpdateDTO dto, EmployerEntity entity) {
+        if (dto == null || entity == null) return;
+
+        if (dto.getCategory() != null) entity.setCategory(dto.getCategory());
+        if (dto.getJobType() != null) entity.setJobType(dto.getJobType());
+        if (dto.getSalary() != null) entity.setSalary(String.valueOf(dto.getSalary()));
+        if (dto.getWorkHours() != null) entity.setWorkHours(String.valueOf(dto.getWorkHours()));
+        if (dto.getJobDate() != null) entity.setJobDate(dto.getJobDate());
+        if (dto.getWorkerCount() != null) entity.setWorkerCount(dto.getWorkerCount());
+        if (dto.getRequirements() != null) entity.setRequirements(dto.getRequirements());
+        if (dto.getFoodProvided() != null) entity.setFoodProvided(dto.getFoodProvided());
+        if (dto.getLatitude() != null) entity.setLatitude(dto.getLatitude());
+        if (dto.getLongitude() != null) entity.setLongitude(dto.getLongitude());
+        if (dto.getStatus() != null) entity.setStatus(dto.getStatus());
     }
 }
