@@ -64,7 +64,8 @@ public class TelegramCallbackService {
                             callbackData.startsWith("emp_app_status_") ||
                             callbackData.startsWith("vac_edit_") ||
                             callbackData.startsWith("vac_delete_") ||
-                            callbackData.startsWith("vac_toggle_")
+                            callbackData.startsWith("vac_toggle_") ||
+                            callbackData.startsWith("vac_filled_")
             )) {
                 SendMessage response = employerHandler.handleCallback(callbackQuery);
                 if (response != null) bot.executeMessage(response);

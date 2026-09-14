@@ -44,6 +44,25 @@ public class EmployerEntity {
     private String companyName;
     private Long telegramId;
 
-    // ===== YANGI FIELD =====
     private Integer age;
+
+    @Column(length = 500)
+    private String companyDescription;
+
+    @Column(length = 200)
+    private String companyAddress;
+
+    @Column(length = 200)
+    private String companyWebsite;
+
+    @Column(length = 50)
+    private String companySize;
+
+    @Column(length = 500)
+    private String companyLogoFileId;
+
+    // ===== BLOKLANGAN NOMZODLAR =====
+    // Format: "123456,789012,345678"
+    @Column(length = 5000)
+    private String blockedCandidateIds;
 }

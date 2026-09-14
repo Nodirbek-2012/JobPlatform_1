@@ -30,9 +30,14 @@ public class JobVacancy {
     private Boolean isActive;
     private String companyName;
 
+    // ===== YANGI: FILLED status =====
+    // null → Faol
+    // "FILLED" → To'ldirildi
+    private String vacancyStatus;
+
     @Column(name = "external_id", unique = true)
-    private String externalId; // Masalan: "olx_12345678"
+    private String externalId;
 
     @Column(name = "source_url")
-    private String sourceUrl;  // OLX dagi asl havola
+    private String sourceUrl;
 }

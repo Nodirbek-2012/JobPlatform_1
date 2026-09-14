@@ -1,10 +1,9 @@
 package uz.imaan.jobplatform.employer.service.interfacee;
 
-import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
-import org.telegram.telegrambots.meta.api.objects.Message;
 import uz.imaan.jobplatform.employer.dto.EmployerCreateDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerResponseDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerUpdateDTO;
+
 import java.util.List;
 
 public interface EmployerService {
@@ -20,6 +19,4 @@ public interface EmployerService {
     EmployerResponseDTO updateJob(Long id, EmployerUpdateDTO dto);
 
     void deleteJob(Long id);
-
-    SendMessage handleEmployer(Message message);
 }

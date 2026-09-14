@@ -43,7 +43,7 @@ public class Telegram extends TelegramLongPollingBot {
             JobSeekerHandler jobSeekerHandler,
             EmployerHandler employerHandler,
             TelegramCallbackService telegramCallbackService,
-            @Value("8449248126:AAFPgTpsBD2o1k_cp8YbG8_wqp9o8KnRCss") String botToken) {
+            @Value("8500721788:AAHSLEd2QwxEBaQZj0vS4uiIW73jPKIFrdM") String botToken) {
         super(botToken);
         this.jobSeekerHandler = jobSeekerHandler;
         this.employerHandler = employerHandler;
@@ -60,7 +60,7 @@ public class Telegram extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
 
         // ============================================
-        // 1. CALLBACK QUERY → TelegramCallbackService ga yo'naltirish
+        // 1. CALLBACK QUERY → TelegramCallbackService
         // ============================================
         if (update.hasCallbackQuery()) {
             log.info("📩 Callback keldi: {}", update.getCallbackQuery().getData());
@@ -113,7 +113,7 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ============================================
-    // YORDAMCHI METODLAR (TelegramCallbackService chaqiradi)
+    // PUBLIC METODLAR (TelegramCallbackService chaqiradi)
     // ============================================
     public void executeMessage(SendMessage message) {
         try {
@@ -153,6 +153,9 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
+    // ============================================
+    // YORDAMCHI METODLAR
+    // ============================================
     private void sendRoleSelectionMenu(Long chatId, String text) {
         SendMessage message = new SendMessage(chatId.toString(), text);
         ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
