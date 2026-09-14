@@ -1,38 +1,42 @@
 package uz.imaan.jobplatform.admin.entity;
 
 import jakarta.persistence.*;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
+import uz.imaan.jobplatform.admin.category.Role;
 
 @Entity
-@Table(name = "admins")
+@Table(name = "admins",
+        uniqueConstraints = {
+                @UniqueConstraint(name = "uk_admin_telegram_id", columnNames = "telegram_id"),
+                @UniqueConstraint(name = "uk_admin_username",   columnNames = "username")
+        })
 @Getter
 @Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class Admin {
-
-
-    private String name;
-
-    // Геттеры и сеттеры (обязательно должны быть!)
-        public Long getTelegramId() { return telegramId; }
-        public void setTelegramId(Long telegramId) { this.telegramId = telegramId; }
-    // ... остальные геттеры/сеттеры
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "telegram_id", unique = true)
     private Long telegramId;
+
+    @Column(length = 100)
     private String username;
-    private String role; // e.g. "ROLE_ADMIN", "SUPER_ADMIN"
-    private Boolean isActive;
+
+    @Column(length = 100)
+    private String name;
+
+    @Column(name = "phone_number", length = 20)
     private String phoneNumber;
 
-    public void setName(String name) {
-        this.name = name;
-    }
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30, nullable = false)
+    private Role role;
 
-    public String getName() {
-        return name;
-    }
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive = true;
 }

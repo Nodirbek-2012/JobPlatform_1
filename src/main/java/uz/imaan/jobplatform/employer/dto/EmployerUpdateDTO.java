@@ -1,24 +1,32 @@
 package uz.imaan.jobplatform.employer.dto;
 
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
-import lombok.Builder;
+import lombok.*;
 
 import java.time.LocalDate;
 
+@Getter
+@Setter
 @Builder
-public record EmployerUpdateDTO(
-        String category,
-        String jobType,
-        @NotBlank
-        Double salary,
-        @Positive
-        Integer workHours,
-        LocalDate jobDate,
-        Integer workerCount,
-        String requirements,
-        Boolean foodProvided,
-        Double latitude,
-        Double longitude,
-        String status
-) {}
+@NoArgsConstructor
+@AllArgsConstructor
+public class EmployerUpdateDTO {
+
+        private String category;
+        private String jobType;
+
+        @NotNull(message = "Maosh bo'sh bo'lmasligi kerak")
+        private Double salary;
+
+        @Positive(message = "Ish soati musbat bo'lishi kerak")
+        private Integer workHours;
+
+        private LocalDate jobDate;
+        private Integer workerCount;
+        private String requirements;
+        private Boolean foodProvided;
+        private Double latitude;
+        private Double longitude;
+        private String status;
+}

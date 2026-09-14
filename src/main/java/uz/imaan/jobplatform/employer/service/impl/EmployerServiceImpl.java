@@ -1,6 +1,7 @@
 package uz.imaan.jobplatform.employer.service.impl;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
@@ -12,11 +13,11 @@ import uz.imaan.jobplatform.employer.dto.EmployerCreateDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerResponseDTO;
 import uz.imaan.jobplatform.employer.dto.EmployerUpdateDTO;
 import uz.imaan.jobplatform.employer.entity.EmployerEntity;
-import uz.imaan.jobplatform.employer.state.EmployerState;
 import uz.imaan.jobplatform.employer.job.JobStore;
 import uz.imaan.jobplatform.employer.mapper.EmployerMapper;
 import uz.imaan.jobplatform.employer.repository.EmployerRepository;
 import uz.imaan.jobplatform.employer.service.interfacee.EmployerService;
+import uz.imaan.jobplatform.employer.state.EmployerState;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class EmployerServiceImpl implements EmployerService {
@@ -32,11 +34,11 @@ public class EmployerServiceImpl implements EmployerService {
     private final EmployerMapper mapper;
     private final JobStore jobStore;
 
-    // Validatsiya uchun regex qoliplari
     private static final Pattern PASSPORT_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
-    // ===== O'ZGARTIRILDI: Faqat +998 bilan boshlanadigan 9 ta raqam =====
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+998[0-9]{9}$");
-    private static final Pattern SALARY_PATTERN = Pattern.compile("^[0-9]+$");
+    private static final Pattern NUMBER_PATTERN = Pattern.compile("^[0-9]+$");
+
+    // ─────────────────────────── TELEGRAM FLOW ───────────────────────────
 
     @Override
     public SendMessage handleEmployer(Message message) {
@@ -44,34 +46,30 @@ public class EmployerServiceImpl implements EmployerService {
         String text = message.getText();
         EmployerState currentState = jobStore.getState(chatId);
 
-        // 1. "Employer (Ish beruvchi)" bosilganda menyuni ochamiz
-        if (text != null && text.equals("Employer (Ish beruvchi)")) {
+        if ("Employer (Ish beruvchi)".equals(text)) {
             jobStore.clear(chatId);
             jobStore.setState(chatId, EmployerState.EMPLOYER_MAIN_MENU);
             return createEmployerMainMenu(chatId);
         }
 
-        // 2. Yangi e'lon yaratish tugmasi
-        if (text != null && text.equals("➕ Yangi e'lon yaratish")) {
+        if ("➕ Yangi e'lon yaratish".equals(text)) {
             jobStore.clear(chatId);
             jobStore.setState(chatId, EmployerState.WAITING_FOR_TITLE);
-            return createMessage(chatId, "📝 **Ish sarlavhasini (lavozimni) kiriting:**\n\n*Misol:* Java Backend Dasturchi");
+            return createMessage(chatId, "📝 *Ish sarlavhasini (lavozimni) kiriting:*\n\n_Misol:_ Java Backend Dasturchi");
         }
 
-        // 3. Mening vakansiyalarim tugmasi
-        if (text != null && text.equals("📋 Mening vakansiyalarim")) {
+        if ("📋 Mening vakansiyalarim".equals(text)) {
             List<EmployerResponseDTO> vacancies = getByEmployerChatId(chatId);
             if (vacancies.isEmpty()) {
                 return createMessage(chatId, "📭 Sizda hozircha aktiv e'lonlar mavjud emas.");
             }
-
-            StringBuilder sb = new StringBuilder("📋 **Sizning e'lonlaringiz:**\n\n");
+            StringBuilder sb = new StringBuilder("📋 *Sizning e'lonlaringiz:*\n\n");
             for (int i = 0; i < vacancies.size(); i++) {
                 EmployerResponseDTO v = vacancies.get(i);
-                sb.append((i + 1)).append(". 📌 **").append(v.title() != null ? v.title() : "Noma'lum").append("**\n")
-                        .append("   📂 Kategoriya: ").append(v.category()).append("\n")
-                        .append("   💰 Maosh: ").append(v.salary()).append(" so'm\n")
-                        .append("   🟢 Holati: ").append(v.status()).append("\n\n");
+                sb.append(i + 1).append(". 📌 *").append(v.getTitle() != null ? v.getTitle() : "Noma'lum").append("*\n")
+                        .append("   📂 Kategoriya: ").append(v.getCategory()).append("\n")
+                        .append("   💰 Maosh: ").append(v.getSalary()).append(" so'm\n")
+                        .append("   🟢 Holati: ").append(v.getStatus()).append("\n\n");
             }
             return createMessage(chatId, sb.toString());
         }
@@ -82,56 +80,54 @@ public class EmployerServiceImpl implements EmployerService {
         }
 
         switch (currentState) {
-            case WAITING_FOR_TITLE:
+            case WAITING_FOR_TITLE -> {
                 if (text == null || text.trim().length() < 3) {
                     return createMessage(chatId, "❌ Sarlavha kamida 3 ta belgidan iborat bo'lishi kerak. Qaytadan kiriting:");
                 }
                 jobStore.getBuilder(chatId).title(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_CATEGORY);
                 return createCategoryMenu(chatId);
-
-            case WAITING_FOR_CATEGORY:
+            }
+            case WAITING_FOR_CATEGORY -> {
                 jobStore.getBuilder(chatId).category(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_PASSPORT);
-                return createMessage(chatId, "🪪 **Pasport seria va raqamini kiriting:**\n\n💡 *Misol:* `AA1234567`");
-
-            case WAITING_FOR_PASSPORT:
+                return createMessage(chatId, "🪪 *Pasport seria va raqamini kiriting:*\n\n💡 _Misol:_ `AA1234567`");
+            }
+            case WAITING_FOR_PASSPORT -> {
                 if (text == null || !PASSPORT_PATTERN.matcher(text.trim()).matches()) {
-                    return createMessage(chatId, "❌ **Pasport formati noto'g'ri!**\n\n" +
-                            "Iltimos, 2 ta katta lotin harfi va 7 ta raqam kiriting.\n" +
-                            "💡 *Misol:* `AA1234567`");
+                    return createMessage(chatId, "❌ *Pasport formati noto'g'ri!*\n\n" +
+                            "Iltimos, 2 ta katta lotin harfi va 7 ta raqam kiriting.\n💡 _Misol:_ `AA1234567`");
                 }
                 jobStore.getBuilder(chatId).passportSeriesNumber(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_PHONE);
-                return createMessage(chatId, "📞 **Telefon raqamingizni yuboring:**\n\n💡 *Misol:* `+998901234567`");
-
-            case WAITING_FOR_PHONE:
+                return createMessage(chatId, "📞 *Telefon raqamingizni yuboring:*\n\n💡 _Misol:_ `+998901234567`");
+            }
+            case WAITING_FOR_PHONE -> {
                 if (text == null || !PHONE_PATTERN.matcher(text.trim()).matches()) {
-                    return createMessage(chatId, "❌ **Telefon raqam formati noto'g'ri!**\n\n" +
-                            "Iltimos, +998 bilan boshlanuvchi 9 ta raqam kiriting.\n" +
-                            "💡 *Misol:* `+998901234567`");
+                    return createMessage(chatId, "❌ *Telefon raqam formati noto'g'ri!*\n\n" +
+                            "Iltimos, +998 bilan boshlanuvchi 9 ta raqam kiriting.\n💡 _Misol:_ `+998901234567`");
                 }
                 jobStore.getBuilder(chatId).phoneNumber(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_SALARY);
-                return createMessage(chatId, "💰 **Maosh miqdorini raqamlarda kiriting:**\n\n*Misol:* 8000000");
-
-            case WAITING_FOR_SALARY:
-                if (text == null || !SALARY_PATTERN.matcher(text.trim()).matches()) {
+                return createMessage(chatId, "💰 *Maosh miqdorini raqamlarda kiriting:*\n\n_Misol:_ 8000000");
+            }
+            case WAITING_FOR_SALARY -> {
+                if (text == null || !NUMBER_PATTERN.matcher(text.trim()).matches()) {
                     return createMessage(chatId, "❌ Maosh faqat musbat raqamlardan iborat bo'lishi kerak. Qaytadan kiriting:");
                 }
                 jobStore.getBuilder(chatId).salary(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_WORK_HOURS);
-                return createMessage(chatId, "⏰ **Ish soatini raqamda kiriting:**\n\n*Misol:* 8");
-
-            case WAITING_FOR_WORK_HOURS:
-                if (text == null || !SALARY_PATTERN.matcher(text.trim()).matches()) {
+                return createMessage(chatId, "⏰ *Ish soatini raqamda kiriting:*\n\n_Misol:_ 8");
+            }
+            case WAITING_FOR_WORK_HOURS -> {
+                if (text == null || !NUMBER_PATTERN.matcher(text.trim()).matches()) {
                     return createMessage(chatId, "❌ Ish soati faqat raqam bo'lishi kerak. Qaytadan kiriting:");
                 }
                 jobStore.getBuilder(chatId).workHours(text.trim());
                 jobStore.setState(chatId, EmployerState.WAITING_FOR_REQUIREMENTS);
-                return createMessage(chatId, "📋 **Talablarni kiriting:**\n\n*Misol:* 1 yil tajriba, Ingliz tili");
-
-            case WAITING_FOR_REQUIREMENTS:
+                return createMessage(chatId, "📋 *Talablarni kiriting:*\n\n_Misol:_ 1 yil tajriba, Ingliz tili");
+            }
+            case WAITING_FOR_REQUIREMENTS -> {
                 EmployerCreateDTO draft = jobStore.getBuilder(chatId)
                         .requirements(text != null ? text.trim() : "")
                         .employerChatId(chatId)
@@ -143,24 +139,25 @@ public class EmployerServiceImpl implements EmployerService {
                 jobStore.clear(chatId);
                 jobStore.setState(chatId, EmployerState.EMPLOYER_MAIN_MENU);
 
-                return createMessage(chatId, "🎉 **E'loningiz muvaffaqiyatli e'lon qilindi!**\n\n" +
-                        "📌 **Nomi:** " + draft.title() + "\n" +
-                        "📂 **Kategoriya:** " + draft.category() + "\n" +
-                        "🪪 **Pasport:** " + draft.passportSeriesNumber() + "\n" +
-                        "📞 **Tel:** " + draft.phoneNumber() + "\n" +
-                        "💰 **Maosh:** " + draft.salary() + "\n" +
-                        "⏰ **Ish vaqti:** " + draft.workHours() + "\n" +
-                        "📋 **Talablar:** " + draft.requirements());
-
-            default:
+                return createMessage(chatId, "🎉 *E'loningiz muvaffaqiyatli e'lon qilindi!*\n\n" +
+                        "📌 *Nomi:* " + draft.getTitle() + "\n" +
+                        "📂 *Kategoriya:* " + draft.getCategory() + "\n" +
+                        "🪪 *Pasport:* " + draft.getPassportSeriesNumber() + "\n" +
+                        "📞 *Tel:* " + draft.getPhoneNumber() + "\n" +
+                        "💰 *Maosh:* " + draft.getSalary() + "\n" +
+                        "⏰ *Ish vaqti:* " + draft.getWorkHours() + "\n" +
+                        "📋 *Talablar:* " + draft.getRequirements());
+            }
+            default -> {
                 return createEmployerMainMenu(chatId);
+            }
         }
     }
 
     private SendMessage createEmployerMainMenu(Long chatId) {
         SendMessage sendMessage = new SendMessage();
         sendMessage.setChatId(chatId.toString());
-        sendMessage.setText("🏢 **Ish beruvchi boshqaruv paneli:**\nKerakli bo'limni tanlang:");
+        sendMessage.setText("🏢 *Ish beruvchi boshqaruv paneli:*\nKerakli bo'limni tanlang:");
         sendMessage.setParseMode("Markdown");
 
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
@@ -187,7 +184,7 @@ public class EmployerServiceImpl implements EmployerService {
     private SendMessage createCategoryMenu(Long chatId) {
         SendMessage sendMessage = new SendMessage();
         sendMessage.setChatId(chatId.toString());
-        sendMessage.setText("📂 **Vakansiya kategoriyasini tanlang:**");
+        sendMessage.setText("📂 *Vakansiya kategoriyasini tanlang:*");
 
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
         markup.setResizeKeyboard(true);
@@ -224,6 +221,8 @@ public class EmployerServiceImpl implements EmployerService {
         return sendMessage;
     }
 
+    // ─────────────────────────── CRUD ───────────────────────────
+
     @Override
     @Transactional
     public EmployerResponseDTO createJob(EmployerCreateDTO dto) {
@@ -232,6 +231,7 @@ public class EmployerServiceImpl implements EmployerService {
         if (entity.getStatus() == null) entity.setStatus("ACTIVE");
 
         EmployerEntity saved = repository.save(entity);
+        log.info("Created vacancy id={}, title={}", saved.getId(), saved.getTitle());
         return mapper.toResponseDTO(saved);
     }
 
@@ -245,13 +245,18 @@ public class EmployerServiceImpl implements EmployerService {
     @Override
     @Transactional(readOnly = true)
     public List<EmployerResponseDTO> getAll() {
-        return repository.findAll().stream().map(mapper::toResponseDTO).collect(Collectors.toList());
+        return repository.findAll().stream()
+                .map(mapper::toResponseDTO)
+                .collect(Collectors.toList());
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<EmployerResponseDTO> getByEmployerChatId(Long chatId) {
-        return repository.findById(chatId).stream().map(mapper::toResponseDTO).collect(Collectors.toList());
+        return repository.findByEmployerChatId(chatId)
+                .map(mapper::toResponseDTO)
+                .map(List::of)
+                .orElseGet(List::of);
     }
 
     @Override
@@ -260,8 +265,7 @@ public class EmployerServiceImpl implements EmployerService {
         EmployerEntity entity = repository.findById(id)
                 .orElseThrow(() -> new RuntimeException("E'lon topilmadi: " + id));
 
-        if (dto.category() != null) entity.setCategory(dto.category());
-        if (dto.salary() != null) entity.setSalary(String.valueOf(dto.salary()));
+        mapper.updateEntityFromDto(dto, entity);
 
         return mapper.toResponseDTO(repository.save(entity));
     }
@@ -269,6 +273,10 @@ public class EmployerServiceImpl implements EmployerService {
     @Override
     @Transactional
     public void deleteJob(Long id) {
+        if (!repository.existsById(id)) {
+            throw new RuntimeException("E'lon topilmadi: " + id);
+        }
         repository.deleteById(id);
+        log.info("Deleted vacancy id={}", id);
     }
 }

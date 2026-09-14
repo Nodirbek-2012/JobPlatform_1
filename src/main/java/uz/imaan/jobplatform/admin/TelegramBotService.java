@@ -1,6 +1,7 @@
 package uz.imaan.jobplatform.admin;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
@@ -12,7 +13,10 @@ import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
+import uz.imaan.jobplatform.admin.category.Role;
 import uz.imaan.jobplatform.admin.dto.AdminDtoTwo;
+import uz.imaan.jobplatform.admin.dto.AdminStatsDto;
+import uz.imaan.jobplatform.admin.dto.BlockUserDto;
 import uz.imaan.jobplatform.admin.service.AdminService;
 
 import java.util.ArrayList;
@@ -24,24 +28,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TelegramBotService extends TelegramLongPollingBot {
 
     private final Map<Long, String> userLanguages = new ConcurrentHashMap<>();
-    private final Map<Long, String> userStates = new ConcurrentHashMap<>();
-    private final Map<Long, AdminDtoTwo> pendingAdmins = new ConcurrentHashMap<>();
 
-    private String botUsername = "employment_chirchik_bot";
+    private final String botUsername;
     private long lastUpdateId = 0;
 
-    // Direct injection orqali AOP Proxy bilan bog'liq siklik bog'lanish va Lazy muammosini oldini olamiz
     @Autowired
     @Lazy
     private AdminService adminService;
 
-    public TelegramBotService() {
-        super("8757778609:AAEtyutp-PvYDx8DbtcIYSQmw7W4hU2GryI");
-        this.botUsername = "employment_chirchik_bot";
-    }
-
-    private String getLanguage(long chatId) {
-        return userLanguages.getOrDefault(chatId, "RU");
+    public TelegramBotService(
+            @Value("${telegram.bot.token}") String token,
+            @Value("${telegram.bot.username}") String username) {
+        super(token);
+        this.botUsername = username;
     }
 
     @Override
@@ -49,21 +48,20 @@ public class TelegramBotService extends TelegramLongPollingBot {
         return botUsername;
     }
 
+    private String getLanguage(long chatId) {
+        return userLanguages.getOrDefault(chatId, "RU");
+    }
+
     @Override
     public void onUpdateReceived(Update update) {
         try {
             if (update.hasMessage() && update.getMessage().hasText()) {
                 Message message = update.getMessage();
-
-                if (lastUpdateId >= update.getUpdateId()) {
-                    return;
-                }
+                if (lastUpdateId >= update.getUpdateId()) return;
                 lastUpdateId = update.getUpdateId();
-
                 handleTextMessage(message);
                 return;
             }
-
             if (update.hasCallbackQuery()) {
                 handleCallbackQuery(update.getCallbackQuery());
             }
@@ -75,7 +73,6 @@ public class TelegramBotService extends TelegramLongPollingBot {
     private void handleTextMessage(Message message) {
         String text = message.getText();
         long chatId = message.getChatId();
-
         if (text == null) return;
 
         if (text.startsWith("/addadmin")) {
@@ -83,33 +80,23 @@ public class TelegramBotService extends TelegramLongPollingBot {
             return;
         }
 
-        if (text.startsWith("/")) {
-            if ("/start".equals(text)) {
-                if (!userLanguages.containsKey(chatId)) {
-                    userLanguages.put(chatId, "RU");
-                }
-                sendMessage(chatId, "Привет! Бот поиска почасовой работы JobPlatform запущен.");
-                return;
-            }
+        if (!text.startsWith("/")) return;
 
-            if ("/admin".equals(text)) {
+        switch (text.split("\\s+")[0]) {
+            case "/start" -> {
+                userLanguages.putIfAbsent(chatId, "RU");
+                sendMessage(chatId, "Привет! Бот поиска почасовой работы JobPlatform запущен.");
+            }
+            case "/admin" -> {
                 if (!adminService.isAdmin(chatId)) {
                     sendMessage(chatId, "У вас нет прав администратора.");
                     return;
                 }
                 sendAdminMenu(chatId);
-                return;
             }
-
-            if (text.startsWith("/block") || text.startsWith("/unblock")) {
-                handleAdminCommand(text, chatId);
-                return;
-            }
-
-            if (text.startsWith("/info")) {
-                handleInfoCommand(chatId, text);
-                return;
-            }
+            case "/block", "/unblock" -> handleAdminCommand(text, chatId);
+            case "/info" -> handleInfoCommand(chatId, text);
+            default -> { /* ignore */ }
         }
     }
 
@@ -123,217 +110,166 @@ public class TelegramBotService extends TelegramLongPollingBot {
             execute(answer);
         } catch (Exception ignored) {}
 
-        if ("change_language".equals(data)) {
-            sendLanguageMenu(chatId);
-        } else if ("lang_ru".equals(data)) {
-            userLanguages.put(chatId, "RU");
-            sendMessage(chatId, "✅ Язык успешно изменён на **Русский**!");
-            sendAdminMenu(chatId);
-        } else if ("lang_uz".equals(data)) {
-            userLanguages.put(chatId, "UZ");
-            sendMessage(chatId, "✅ Til **O'zbekcha**ga muvaffaqiyatli o'zgartirildi!");
-            sendAdminMenu(chatId);
-        } else if ("admin_stats".equals(data) || "stats".equals(data)) {
-            AdminDtoTwo stats = adminService.getStats();
-
-            long admins = stats.totalAdmins() != null ? stats.totalAdmins() : 0;
-            long employers = stats.totalEmployers() != null ? stats.totalEmployers() : 0;
-            long workers = stats.totalWorkers() != null ? stats.totalWorkers() : 0;
-
-            String statsText = String.format(
-                    "📊 *Статистика платформы:*\n\n👥 Админов: `%d`\n🏢 Работодателей: `%d`\n👤 Исполнителей: `%d`",
-                    admins, employers, workers
-            );
-
-            sendMessage(chatId, statsText);
-        } else if ("admin_workers".equals(data) || "workers".equals(data)) {
-            sendMessage(chatId, adminService.getAllWorkersList());
-        } else if ("admin_employers".equals(data) || "employers".equals(data)) {
-            sendMessage(chatId, adminService.getFormattedEmployersList());
-        } else if ("admin_refresh".equals(data)) {
-            sendAdminMenu(chatId);
-        } else if ("admin_find_by_tg_id".equals(data)) {
-            String text = "UZ".equals(getLanguage(chatId))
-                    ? "🔍 Foydalanuvchi haqida to'liq ma'lumot olish uchun buyruqni yuboring:\n\n`/info 123456789`"
-                    : "🔍 Чтобы получить полную информацию о пользователе, отправьте команду:\n\n`/info 123456789`";
-            sendMessage(chatId, text);
+        switch (data) {
+            case "change_language" -> sendLanguageMenu(chatId);
+            case "lang_ru" -> {
+                userLanguages.put(chatId, "RU");
+                sendMessage(chatId, "✅ Язык успешно изменён на *Русский*!");
+                sendAdminMenu(chatId);
+            }
+            case "lang_uz" -> {
+                userLanguages.put(chatId, "UZ");
+                sendMessage(chatId, "✅ Til *O'zbekcha*ga muvaffaqiyatli o'zgartirildi!");
+                sendAdminMenu(chatId);
+            }
+            case "admin_workers", "workers" -> sendMessage(chatId, adminService.getAllWorkersList());
+            case "admin_employers", "employers" -> sendMessage(chatId, adminService.getFormattedEmployersList());
+            case "admin_refresh" -> sendAdminMenu(chatId);
+            case "admin_find_by_tg_id" -> {
+                String text = "UZ".equals(getLanguage(chatId))
+                        ? "🔍 Foydalanuvchi haqida ma'lumot olish uchun:\n\n`/info 123456789`"
+                        : "🔍 Чтобы получить информацию о пользователе, отправьте:\n\n`/info 123456789`";
+                sendMessage(chatId, text);
+            }
+            default -> { /* ignore */ }
         }
     }
 
-    public void handleAdminCommand(String text, Long adminChatId) {
+    private void handleAdminCommand(String text, Long adminChatId) {
         if (text.startsWith("/block")) {
             String[] parts = text.split(" ", 3);
-
             if (parts.length < 3) {
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("⚠️ Формат команды: /block <ID_пользователя> <Причина>")
-                        .build());
+                        .text("⚠️ Формат: /block <ID> <Причина>").build());
                 return;
             }
-
             try {
                 Long targetUserId = Long.parseLong(parts[1]);
                 String reason = parts[2];
-
-                AdminDtoTwo blockDTO = new AdminDtoTwo(
-                        null, null, null, null, null, null, null, null, null,
-                        0L, null, null, null, targetUserId, reason, null, null, null, 0L, 0L
-                );
-
-                blockUser(blockDTO);
-
+                adminService.blockUser(new BlockUserDto(targetUserId, reason));
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("✅ Пользователь " + targetUserId + " успешно заблокирован.")
-                        .build());
-
+                        .text("✅ Пользователь " + targetUserId + " заблокирован.").build());
             } catch (NumberFormatException e) {
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("❌ Неверный ID пользователя. ID должен состоять только из цифр.")
-                        .build());
+                        .text("❌ Неверный ID пользователя.").build());
             }
         } else if (text.startsWith("/unblock")) {
             String[] parts = text.split(" ", 2);
-
             if (parts.length < 2) {
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("⚠️ Формат команды: /unblock <ID_пользователя>")
-                        .build());
+                        .text("⚠️ Формат: /unblock <ID>").build());
                 return;
             }
-
             try {
                 Long targetUserId = Long.parseLong(parts[1]);
-
-                unblockUser(targetUserId);
-
+                adminService.unblockUser(targetUserId);
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("✅ Пользователь " + targetUserId + " разблокирован.")
-                        .build());
-
+                        .text("✅ Пользователь " + targetUserId + " разблокирован.").build());
             } catch (NumberFormatException e) {
                 executeMessage(SendMessage.builder()
                         .chatId(adminChatId.toString())
-                        .text("❌ Неверный ID пользователя.")
-                        .build());
+                        .text("❌ Неверный ID пользователя.").build());
             }
         }
     }
 
     public void sendAdminMenu(long chatId) {
-        AdminDtoTwo stats = adminService.getDetailedStats();
-
-        long admins = stats.totalAdmins() != null ? stats.totalAdmins() : 0;
-        long employers = stats.totalEmployers() != null ? stats.totalEmployers() : 0;
-        long workers = stats.totalWorkers() != null ? stats.totalWorkers() : 0;
-        long activeJobs = stats.activeJobs() != null ? stats.activeJobs() : 0;
-        long completedShifts = stats.completedShifts();
+        AdminStatsDto stats = adminService.getDetailedStats();
         String lang = getLanguage(chatId);
 
-        String menuText = "UZ".equals(lang) ?
-                String.format(
-                        "⚙️ *JobPlatform Administrator Paneli*\n\n" +
-                                "📊 *Batafsil platforma statistikasi:*\n" +
-                                " ├ 👥 Adminlar: `%d`\n" +
-                                " ├ 🏢 Ish beruvchilar: `%d`\n" +
-                                " ├ 👤 Ishchilar (Izlovchilar): `%d`\n" +
-                                " ├ 💼 Faol vakansiyalar: `%d`\n" +
-                                " └ ✅ Yakunlangan smenalar: `%d`\n\n" +
-                                "Harakatni tanlang:",
-                        admins, employers, workers, activeJobs, completedShifts
-                ) :
-                String.format(
-                        "⚙️ *Панель администратора JobPlatform*\n\n" +
-                                "📊 *Подробная статистика платформы:*\n" +
-                                " ├ 👥 Администраторов: `%d`\n" +
-                                " ├ 🏢 Работодателей: `%d`\n" +
-                                " ├ 👤 Исполнителей: `%d`\n" +
-                                " ├ 💼 Активных вакансий: `%d`\n" +
-                                " └ ✅ Завершенных смен: `%d`\n\n" +
-                                "Выберите действие:",
-                        admins, employers, workers, activeJobs, completedShifts
-                );
+        String menuText = "UZ".equals(lang)
+                ? String.format("""
+                        ⚙️ *JobPlatform Administrator Paneli*
+
+                        📊 *Statistika:*
+                         ├ 👥 Adminlar: `%d`
+                         ├ 🏢 Ish beruvchilar: `%d`
+                         ├ 👤 Ishchilar: `%d`
+                         ├ 💼 Faol vakansiyalar: `%d`
+                         └ ✅ Yakunlangan smenalar: `%d`
+
+                        Harakatni tanlang:""",
+                stats.totalAdmins(), stats.totalEmployers(),
+                stats.totalWorkers(), stats.activeJobs(), stats.completedShifts())
+                : String.format("""
+                        ⚙️ *Панель администратора JobPlatform*
+
+                        📊 *Статистика:*
+                         ├ 👥 Администраторов: `%d`
+                         ├ 🏢 Работодателей: `%d`
+                         ├ 👤 Исполнителей: `%d`
+                         ├ 💼 Активных вакансий: `%d`
+                         └ ✅ Завершённых смен: `%d`
+
+                        Выберите действие:""",
+                stats.totalAdmins(), stats.totalEmployers(),
+                stats.totalWorkers(), stats.activeJobs(), stats.completedShifts());
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        InlineKeyboardButton btnWorkers = new InlineKeyboardButton();
-        btnWorkers.setText("👷 " + ("UZ".equals(lang) ? "Ishchilar" : "Рабочие"));
-        btnWorkers.setCallbackData("admin_workers");
-
-        InlineKeyboardButton btnEmployers = new InlineKeyboardButton();
-        btnEmployers.setText("🏢 " + ("UZ".equals(lang) ? "Ish beruvchilar" : "Работодатели"));
-        btnEmployers.setCallbackData("admin_employers");
-
-        rows.add(List.of(btnWorkers, btnEmployers));
-
-        InlineKeyboardButton btnFindTgId = new InlineKeyboardButton();
-        btnFindTgId.setText("🔍 " + ("UZ".equals(lang) ? "TG ID bo'yicha qidiruv" : "Инфо по TG ID"));
-        btnFindTgId.setCallbackData("admin_find_by_tg_id");
-
-        rows.add(List.of(btnFindTgId));
-
-        InlineKeyboardButton btnRefresh = new InlineKeyboardButton();
-        btnRefresh.setText("🔄 " + ("UZ".equals(lang) ? "Yangilash" : "Обновить"));
-        btnRefresh.setCallbackData("admin_refresh");
-
-        InlineKeyboardButton btnLang = new InlineKeyboardButton();
-        btnLang.setText("🌐 " + ("UZ".equals(lang) ? "Tilni o'zgartirish" : "Сменить язык"));
-        btnLang.setCallbackData("change_language");
-
-        rows.add(List.of(btnRefresh, btnLang));
+        rows.add(List.of(
+                button("👷 " + ("UZ".equals(lang) ? "Ishchilar" : "Рабочие"), "admin_workers"),
+                button("🏢 " + ("UZ".equals(lang) ? "Ish beruvchilar" : "Работодатели"), "admin_employers")
+        ));
+        rows.add(List.of(
+                button("🔍 " + ("UZ".equals(lang) ? "TG ID bo'yicha" : "Инфо по TG ID"), "admin_find_by_tg_id")
+        ));
+        rows.add(List.of(
+                button("🔄 " + ("UZ".equals(lang) ? "Yangilash" : "Обновить"), "admin_refresh"),
+                button("🌐 " + ("UZ".equals(lang) ? "Til" : "Язык"), "change_language")
+        ));
 
         markup.setKeyboard(rows);
 
-        SendMessage message = new SendMessage();
-        message.setChatId(String.valueOf(chatId));
-        message.setText(menuText);
-        message.setParseMode("Markdown");
-        message.setReplyMarkup(markup);
+        SendMessage message = SendMessage.builder()
+                .chatId(String.valueOf(chatId))
+                .text(menuText)
+                .parseMode("Markdown")
+                .replyMarkup(markup)
+                .build();
 
         try {
             execute(message);
-        } catch (Exception e) {
+        } catch (TelegramApiException e) {
             e.printStackTrace();
         }
+    }
+
+    private InlineKeyboardButton button(String text, String data) {
+        InlineKeyboardButton b = new InlineKeyboardButton();
+        b.setText(text);
+        b.setCallbackData(data);
+        return b;
     }
 
     private void handleInfoCommand(long chatId, String text) {
         try {
             String[] parts = text.split("\\s+");
-            if (parts.length > 1) {
-                Long targetTgId = Long.parseLong(parts[1].trim());
-                String infoText = adminService.getUserInfoByTgId(targetTgId);
-
-                if (infoText == null || infoText.trim().isEmpty()) {
-                    sendMessage(chatId, "⚠️ Пользователь с ID `" + targetTgId + "` не найден.");
-                } else {
-                    sendMessage(chatId, infoText);
-                }
-            } else {
-                sendMessage(chatId, "⚠️ Укажите ID, например: `/info 123456789`");
+            if (parts.length < 2) {
+                sendMessage(chatId, "⚠️ Укажите ID: `/info 123456789`");
+                return;
             }
+            Long targetTgId = Long.parseLong(parts[1].trim());
+            sendMessage(chatId, adminService.getUserInfoByTgId(targetTgId));
         } catch (NumberFormatException e) {
-            sendMessage(chatId, "❌ Некорректный формат ID. Используйте только цифры.");
+            sendMessage(chatId, "❌ Некорректный ID.");
         } catch (Exception e) {
-            e.printStackTrace();
-            // Konsolda xatoni aniq ko'rish uchun logga olamiz:
-            System.err.println("CRITICAL ERROR IN INFO COMMAND: " + e.getMessage());
-            sendMessage(chatId, "⚠️ Ошибка при получении информации о пользователе: " + e.getMessage());
+            sendMessage(chatId, "⚠️ Ошибка: " + e.getMessage());
         }
     }
 
     public void sendMessage(long chatId, String text) {
-        SendMessage message = SendMessage.builder()
+        executeMessage(SendMessage.builder()
                 .chatId(chatId)
                 .text(text)
                 .parseMode("Markdown")
-                .build();
-        executeMessage(message);
+                .build());
     }
 
     private void executeMessage(SendMessage message) {
@@ -344,58 +280,20 @@ public class TelegramBotService extends TelegramLongPollingBot {
         }
     }
 
-    public void blockUser(AdminDtoTwo blockDTO) {
-        adminService.blockUser(blockDTO);
-
-        String blockMessage = String.format(
-                "❌ Ваш аккаунт заблокирован.\nПричина: %s",
-                blockDTO.reason()
-        );
-
-        SendMessage sendMessage = SendMessage.builder()
-                .chatId(blockDTO.userId().toString())
-                .text(blockMessage)
-                .build();
-
-        executeMessage(sendMessage);
-    }
-
-    public void unblockUser(Long userId) {
-        adminService.unblockUser(userId);
-
-        String unblockMessage = "✅ Ваш аккаунт успешно разблокирован! Вы снова можете пользоваться ботом.";
-
-        SendMessage sendMessage = SendMessage.builder()
-                .chatId(userId.toString())
-                .text(unblockMessage)
-                .build();
-
-        executeMessage(sendMessage);
-    }
-
     private void sendLanguageMenu(long chatId) {
-        SendMessage message = new SendMessage();
-        message.setChatId(String.valueOf(chatId));
-        message.setText("🌐 **Выберите язык / Tilni tanlang:**");
-
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-
-        InlineKeyboardButton ruBtn = new InlineKeyboardButton();
-        ruBtn.setText("🇷🇺 Русский");
-        ruBtn.setCallbackData("lang_ru");
-
-        InlineKeyboardButton uzBtn = new InlineKeyboardButton();
-        uzBtn.setText("🇺🇿 O'zbekcha");
-        uzBtn.setCallbackData("lang_uz");
-
-        rows.add(List.of(ruBtn, uzBtn));
-        markup.setKeyboard(rows);
-        message.setReplyMarkup(markup);
-        message.setParseMode("Markdown");
+        markup.setKeyboard(List.of(List.of(
+                button("🇷🇺 Русский", "lang_ru"),
+                button("🇺🇿 O'zbekcha", "lang_uz")
+        )));
 
         try {
-            execute(message);
+            execute(SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text("🌐 *Выберите язык / Tilni tanlang:*")
+                    .parseMode("Markdown")
+                    .replyMarkup(markup)
+                    .build());
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
@@ -403,30 +301,28 @@ public class TelegramBotService extends TelegramLongPollingBot {
 
     private void handleAddAdminCommand(String text, long chatId) {
         if (!adminService.isAdmin(chatId)) {
-            sendMessage(chatId, "❌ У вас нет прав для выполнения этой команды.");
+            sendMessage(chatId, "❌ Нет прав.");
             return;
         }
-
         String[] parts = text.split("\\s+");
         if (parts.length < 2) {
-            sendMessage(chatId, "⚠️ Формат команды: `/addadmin <Telegram_ID>`");
+            sendMessage(chatId, "⚠️ Формат: `/addadmin <Telegram_ID>`");
             return;
         }
-
         try {
             Long newAdminId = Long.parseLong(parts[1]);
-
-            AdminDtoTwo newAdminDto = new AdminDtoTwo(
-                    null, null, null, null, null, null, null, null, null,
-                    newAdminId, null, null, null, null, null, null, null, null, 0L, 0L
+            adminService.createAdmin(
+                    AdminDtoTwo.builder()
+                            .telegramId(newAdminId)
+                            .role(Role.ADMIN)
+                            .isActive(true)
+                            .build()
             );
-            adminService.createAdmin(newAdminDto);
-
-            sendMessage(chatId, "✅ Пользователь с ID `" + newAdminId + "` успешно назначен администратором.");
+            sendMessage(chatId, "✅ Пользователь `" + newAdminId + "` назначен админом.");
         } catch (NumberFormatException e) {
-            sendMessage(chatId, "❌ Некорректный Telegram ID. ID должен состоять только из цифр.");
+            sendMessage(chatId, "❌ Некорректный ID.");
         } catch (Exception e) {
-            sendMessage(chatId, "❌ Ошибка при добавлении администратора: " + e.getMessage());
+            sendMessage(chatId, "❌ Ошибка: " + e.getMessage());
         }
     }
 }

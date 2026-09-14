@@ -15,7 +15,7 @@ public class JobStore {
 
     private final JobVacancyRepository vacancyRepository;
     private final Map<Long, EmployerState> userStates = new ConcurrentHashMap<>();
-    private final Map<Long, EmployerCreateDTO.EmployerCreateDTOBuilder> draftBuilders = new ConcurrentHashMap<>();
+    private final Map<Long, EmployerCreateDTO> drafts = new ConcurrentHashMap<>();
 
     public EmployerState getState(Long chatId) {
         return userStates.getOrDefault(chatId, EmployerState.NONE);
@@ -25,13 +25,13 @@ public class JobStore {
         userStates.put(chatId, state);
     }
 
-    public EmployerCreateDTO.EmployerCreateDTOBuilder getBuilder(Long chatId) {
-        return draftBuilders.computeIfAbsent(chatId, k -> EmployerCreateDTO.builder());
+    /** Возвращает черновик вакансии для указанного чата. */
+    public EmployerCreateDTO getDraft(Long chatId) {
+        return drafts.computeIfAbsent(chatId, k -> new EmployerCreateDTO());
     }
 
     public void addVacancy(JobVacancy vacancy) {
         vacancyRepository.save(vacancy);
-        System.out.println("✅ Vakansiya saqlandi: " + vacancy.getTitle());
     }
 
     public List<JobVacancy> getAllVacancies() {
@@ -48,6 +48,6 @@ public class JobStore {
 
     public void clear(Long chatId) {
         userStates.remove(chatId);
-        draftBuilders.remove(chatId);
+        drafts.remove(chatId);
     }
 }
