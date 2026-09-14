@@ -7,7 +7,7 @@ public enum EmployerState {
         WAITING_FOR_REG_AGE,
         WAITING_FOR_REG_PASSPORT,
         WAITING_FOR_REG_PHONE,
-        WAITING_FOR_REG_COMPANY,          // YANGI
+        WAITING_FOR_REG_COMPANY,
         SETTINGS_MENU,
         WAITING_FOR_LANGUAGE,
         WAITING_FOR_TITLE,
@@ -20,12 +20,20 @@ public enum EmployerState {
         WAITING_FOR_REQUIREMENTS,
         WAITING_FOR_PHONE,
         WAITING_FOR_PASSPORT,
-        WAITING_FOR_EDIT_COMPANY,
+
+        // ===== PROFILNI TAHRIRLASH =====
+        EDIT_PROFILE_MENU,                  // YANGI
+        WAITING_FOR_EDIT_NAME,              // YANGI
+        WAITING_FOR_EDIT_AGE,               // YANGI
+        WAITING_FOR_EDIT_COMPANY,           // Mavjud
+
+        // ===== VAKANSIYANI TAHRIRLASH =====
         WAITING_FOR_EDIT_VACANCY_TITLE,
         WAITING_FOR_EDIT_VACANCY_SALARY,
         WAITING_FOR_EDIT_VACANCY_REQUIREMENTS,
         WAITING_FOR_EDIT_VACANCY_WORK_HOURS,
+
         VIEWING_APPLICATIONS,
-        VIEWING_STATISTICS,               // YANGI
+        VIEWING_STATISTICS,
         NONE
 }
