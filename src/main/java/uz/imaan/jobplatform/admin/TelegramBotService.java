@@ -1,3 +1,4 @@
+/*
 package uz.imaan.jobplatform.admin;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -96,7 +97,9 @@ public class TelegramBotService extends TelegramLongPollingBot {
             }
             case "/block", "/unblock" -> handleAdminCommand(text, chatId);
             case "/info" -> handleInfoCommand(chatId, text);
-            default -> { /* ignore */ }
+            default -> { */
+/* ignore *//*
+ }
         }
     }
 
@@ -131,7 +134,9 @@ public class TelegramBotService extends TelegramLongPollingBot {
                         : "🔍 Чтобы получить информацию о пользователе, отправьте:\n\n`/info 123456789`";
                 sendMessage(chatId, text);
             }
-            default -> { /* ignore */ }
+            default -> { */
+/* ignore *//*
+ }
         }
     }
 
@@ -325,4 +330,4 @@ public class TelegramBotService extends TelegramLongPollingBot {
             sendMessage(chatId, "❌ Ошибка: " + e.getMessage());
         }
     }
-}
+}*/
