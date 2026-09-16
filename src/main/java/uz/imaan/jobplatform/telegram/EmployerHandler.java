@@ -48,9 +48,6 @@ public class EmployerHandler {
     private final Map<Long, EmployerState> states = new ConcurrentHashMap<>();
     private final Map<Long, Map<String, String>> draftData = new ConcurrentHashMap<>();
 
-    // ============================================
-    // VALIDATSIYA
-    // ============================================
     private static final Pattern PASSPORT_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
     private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+998[0-9]{9}$");
 
@@ -152,13 +149,11 @@ public class EmployerHandler {
                 return showProfile(chatId, profileOpt, lang);
             }
 
-            // ===== KOMPANIYA =====
             if (text.equals("🏢 Kompaniya") || text.equals("🏢 Компания")) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
                 return showCompanyInfo(chatId, profileOpt, lang);
             }
 
-            // ===== PROFILNI TAHRIRLASH =====
             if (text.equals("✏️ Profilni tahrirlash") || text.equals("✏️ Редактировать профиль")) {
                 states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
                 return createMessage(chatId,
@@ -878,7 +873,7 @@ public class EmployerHandler {
             return null;
         }
 
-        // ===== VAKANSIYANI "TO'LDIRILDI" QILISH =====
+        // Vakansiyani "To'ldirildi" qilish
         if (data != null && data.startsWith("vac_filled_")) {
             Long vacancyId = Long.parseLong(data.replace("vac_filled_", ""));
             Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
@@ -1607,6 +1602,9 @@ public class EmployerHandler {
         return text != null && !text.isBlank() && text.length() <= 100;
     }
 
+    // ============================================
+    // ⭐️ TUZATILGAN: isGlobalButton
+    // ============================================
     private boolean isGlobalButton(String text) {
         return text != null && (
                 text.equals("/start") ||
@@ -1618,7 +1616,7 @@ public class EmployerHandler {
                         text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии") ||
                         text.equals("📩 Arizalar") || text.equals("📩 Заявки") ||
                         text.equals("📊 Statistika") || text.equals("📊 Статистика") ||
-                        text.equals("🚫 Bloklangan nomzodlar") || text.equals("🚫 Заблокированные кандидаты") ||
+                        // "🚫 Bloklangan nomzodlar" OLIB TASHLANDI - bu tugma faqat SETTINGS_MENU ichida ishlaydi
                         text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") ||
                         text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") ||
                         text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("Asosiy menyu")

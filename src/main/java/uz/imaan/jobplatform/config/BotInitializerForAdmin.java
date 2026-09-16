@@ -1,3 +1,4 @@
+/*
 package uz.imaan.jobplatform.config;
 
 import org.springframework.context.event.ContextRefreshedEvent;
@@ -9,7 +10,7 @@ import org.telegram.telegrambots.updatesreceivers.DefaultBotSession;
 import uz.imaan.jobplatform.admin.TelegramBotService;
 
 
-@Component
+
 
 public class BotInitializerForAdmin {
 
@@ -28,4 +29,4 @@ public class BotInitializerForAdmin {
             e.printStackTrace();
         }
     }
-}
+}*/
