@@ -6,7 +6,7 @@ import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.Update;
 
 
-@Component
+
 public class CallbackHandler {
     // 1. Asosiy callback'ni qabul qiluvchi metod
     public void handle(Update update) {
