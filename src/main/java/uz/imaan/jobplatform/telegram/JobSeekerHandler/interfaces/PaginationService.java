@@ -14,4 +14,7 @@ public interface PaginationService {
     SendMessage handleVacancyPagination(Long chatId, String categoryKey, int page,
                                         Optional<JobSeekerProfile> profileOpt);
 
+    SendMessage handleSearchPagination(Long chatId, String query, String salaryFilter, int page,
+                                       Optional<JobSeekerProfile> profileOpt);
+
 }

@@ -263,7 +263,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== ⭐️ 3. TO'G'RILANGAN NAVIGATSIYA (BEKOR QILISH VA ORQAGA) =====
+        // ===== ⭐️ TO'G'RILANGAN NAVIGATSIYA (BEKOR QILISH VA ORQAGA) =====
         if (text.equals("⬅️ Profilga qaytish") || text.equals("⬅️ Назад в профиль") || text.equals("⬅️ Back to profile")) {
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             return showProfile(chatId, profileOpt);
@@ -300,7 +300,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         // B) Orqaga bosilganda
         if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
-            // Profil ichidagi amallar bo'lsa -> Profilga qaytadi
             if (state == JobSeekerState.EDIT_MENU ||
                     state == JobSeekerState.WAITING_FOR_EDIT_NAME ||
                     state == JobSeekerState.WAITING_FOR_EDIT_PASSPORT ||
@@ -314,7 +313,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return showProfile(chatId, profileOpt);
             }
 
-            // Profil, Hamyon, Arizalar yoki Sozlamalardan -> Asosiy ishchi menyusiga qaytadi
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
             return createMessage(chatId, keyboardService.getMainMenuText(profileOpt),
                     keyboardService.getMainMenuKeyboard(profileOpt));
@@ -520,26 +518,17 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         }
 
         // ===== ASOSIY MENYU TUGMALARI =====
-
-        // ===== ASOSIY MENYU TUGMALARI =====
         switch (text) {
+            // ⭐️ 1-O'ZGARTIRISH: Matn kiritish imkoniyatini bildirish
             case "🔍 Ish qidirish":
             case "🔍 Поиск работы":
             case "🔍 Job search":
                 stateManager.setState(chatId, JobSeekerState.JOB_SEARCH);
-                String searchMsg = getText(profileOpt, chatId,
-                        "📂 **Выберите категорию для поиска:**",
-                        "📂 **Kategoriyani tanlang:**",
-                        "📂 **Select a category to search:**"
-                );
-                SendMessage searchMessage = new SendMessage();
-                searchMessage.setChatId(chatId.toString());
-                searchMessage.setText(searchMsg);
-                searchMessage.setParseMode("Markdown");
-                searchMessage.setReplyMarkup(keyboardService.getCategoryInlineKeyboard(profileOpt));
-                return searchMessage;
+                String searchMsg = "📂 <b>Kategoriyalardan birini tanlang</b> yoki qidirayotgan kasbingizni to'g'ridan-to'g'ri yozib yuboring:\n\n" +
+                        "💡 <i>Masalan: Java, Kassir, Haydovchi, Administrator, Qo'riqchi</i>";
+                return createHtmlMessage(chatId, searchMsg, keyboardService.getCategoryInlineKeyboard(profileOpt));
 
-            // ⭐️ YANGI QO'SHILGAN BAND: SARALANGANLARNI CHIQARISH
+            // SARALANGANLAR
             case "⭐ Saralanganlar":
             case "⭐ Избранное":
             case "⭐ Favorites":
@@ -663,6 +652,14 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         if (state == JobSeekerState.SETTINGS_MENU) {
             return handleSettingsMenu(chatId, text, profileOpt);
+        }
+
+        // ⭐️ 2-O'ZGARTIRISH: ERKIN MATN ORQALI KALIT SO'Z BO'YICHA QIDIRUV (Masalan: Java, Kassir, Haydovchi)
+        if (message.hasText() && !text.startsWith("/") && text.length() >= 2) {
+            if (state == JobSeekerState.JOB_SEARCH || state == JobSeekerState.MAIN_MENU || state == JobSeekerState.NONE) {
+                stateManager.setState(chatId, JobSeekerState.JOB_SEARCH);
+                return paginationService.handleSearchPagination(chatId, text.trim(), "all", 0, profileOpt);
+            }
         }
 
         String defaultMsg = getText(profileOpt, chatId,
@@ -1834,6 +1831,40 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         String callbackData = callbackQuery.getData();
         Long chatId = callbackQuery.getMessage().getChatId();
         Integer messageId = callbackQuery.getMessage().getMessageId();
+
+        // ===== ⭐️ 3-O'ZGARTIRISH: QIDIRUV VA MAOSH FILTRI CALLBACKI (sq_query_filter_page) =====
+        if (callbackData != null && callbackData.startsWith("sq_")) {
+            String[] parts = callbackData.split("_");
+            if (parts.length >= 4) {
+                String query = parts[1];
+                String filter = parts[2];
+                int page = Integer.parseInt(parts[3]);
+
+                Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
+                SendMessage newMsg = paginationService.handleSearchPagination(chatId, query, filter, page, profileOpt);
+
+                try {
+                    Telegram bot = applicationContext.getBean(Telegram.class);
+                    EditMessageText editText = new EditMessageText();
+                    editText.setChatId(chatId.toString());
+                    editText.setMessageId(messageId);
+                    editText.setText(newMsg.getText());
+                    editText.setParseMode("HTML");
+                    bot.execute(editText);
+
+                    EditMessageReplyMarkup editMarkup = new EditMessageReplyMarkup();
+                    editMarkup.setChatId(chatId.toString());
+                    editMarkup.setMessageId(messageId);
+                    editMarkup.setReplyMarkup((InlineKeyboardMarkup) newMsg.getReplyMarkup());
+                    bot.execute(editMarkup);
+                    return null;
+                } catch (Exception e) {
+                    log.error("❌ Xabarni tahrirlashda xatolik: {}", e.getMessage());
+                    executeMessage(newMsg);
+                    return null;
+                }
+            }
+        }
 
         // ===== PAGINATION =====
         if (callbackData != null && callbackData.startsWith("vacancy_page_")) {
