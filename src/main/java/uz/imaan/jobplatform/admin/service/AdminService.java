@@ -1,12 +1,9 @@
 package uz.imaan.jobplatform.admin.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import uz.imaan.jobplatform.admin.TelegramBotService;
 import uz.imaan.jobplatform.admin.dto.AdminDtoTwo;
 import uz.imaan.jobplatform.admin.dto.AdminStatsDto;
 import uz.imaan.jobplatform.admin.dto.BlockUserDto;
@@ -23,7 +20,6 @@ import java.util.Optional;
 
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class AdminService {
 
     private final AdminRepository adminRepository;
@@ -31,11 +27,18 @@ public class AdminService {
     private final JobSeekerProfileRepository jobSeekerProfileRepository;
     private final EmployerRepository employerRepository;
 
-    @Lazy
-    private final TelegramBotService telegramBotService;
-
     @Value("${telegram.bot.admin-ids:}")
     private List<Long> adminChatIds;
+
+    public AdminService(AdminRepository adminRepository,
+                        AdminMapper adminMapper,
+                        JobSeekerProfileRepository jobSeekerProfileRepository,
+                        EmployerRepository employerRepository) {
+        this.adminRepository = adminRepository;
+        this.adminMapper = adminMapper;
+        this.jobSeekerProfileRepository = jobSeekerProfileRepository;
+        this.employerRepository = employerRepository;
+    }
 
     // ─────────────────────────── READ ───────────────────────────
 
@@ -48,7 +51,7 @@ public class AdminService {
     public AdminDtoTwo getAdminById(Long id) {
         return adminRepository.findById(id)
                 .map(adminMapper::toDto)
-                .orElseThrow(() -> new RuntimeException("Admin not found with id: " + id));
+                .orElseThrow(() -> new RuntimeException("Admin not found: " + id));
     }
 
     // ─────────────────────────── CREATE ───────────────────────────
@@ -56,10 +59,10 @@ public class AdminService {
     @Transactional
     public AdminDtoTwo createAdmin(AdminDtoTwo dto) {
         if (dto.telegramId() != null && adminRepository.existsByTelegramId(dto.telegramId())) {
-            throw new IllegalStateException("Admin with telegramId " + dto.telegramId() + " already exists");
+            throw new IllegalStateException("Admin already exists: " + dto.telegramId());
         }
         Admin saved = adminRepository.save(adminMapper.toEntity(dto));
-        log.info("Created admin with id={}, telegramId={}", saved.getId(), saved.getTelegramId());
+        log.info("Created admin id={}", saved.getId());
         return adminMapper.toDto(saved);
     }
 
@@ -68,10 +71,9 @@ public class AdminService {
     @Transactional
     public void deleteAdmin(Long id) {
         if (!adminRepository.existsById(id)) {
-            throw new RuntimeException("Admin not found with id: " + id);
+            throw new RuntimeException("Admin not found: " + id);
         }
         adminRepository.deleteById(id);
-        log.info("Deleted admin with id={}", id);
     }
 
     // ─────────────────────────── AUTH ───────────────────────────
@@ -107,7 +109,6 @@ public class AdminService {
         worker.setIsActive(false);
         worker.setBlockReason(dto.reason());
         jobSeekerProfileRepository.save(worker);
-        log.info("Blocked user id={}, reason={}", dto.userId(), dto.reason());
     }
 
     @Transactional
@@ -117,17 +118,9 @@ public class AdminService {
         worker.setIsActive(true);
         worker.setBlockReason(null);
         jobSeekerProfileRepository.save(worker);
-        log.info("Unblocked user id={}", userId);
     }
 
-    // ─────────────────────────── NOTIFICATIONS ───────────────────────────
-
-    public void notifyAllAdmins(String message) {
-        if (adminChatIds == null) return;
-        adminChatIds.forEach(id -> telegramBotService.sendMessage(id, message));
-    }
-
-    // ─────────────────────────── WORKERS / EMPLOYERS ───────────────────────────
+    // ─────────────────────────── LISTS ───────────────────────────
 
     public List<JobSeekerProfile> getAllJobSeekers() {
         return jobSeekerProfileRepository.findAll();
@@ -208,8 +201,6 @@ public class AdminService {
                 .append("📞 ").append(safe(e.getPhoneNumber(), "—")).append("\n"));
         return sb.toString();
     }
-
-    // ─────────────────────────── HELPERS ───────────────────────────
 
     private static String safe(String value, String fallback) {
         return (value == null || value.isBlank()) ? fallback : value;
