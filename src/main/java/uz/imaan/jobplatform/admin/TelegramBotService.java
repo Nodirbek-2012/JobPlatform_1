@@ -38,7 +38,7 @@ public class TelegramBotService extends TelegramLongPollingBot {
 
     public TelegramBotService(
             @Value("${telegram.bot.token}") String token,
-            @Value("${telegram.bot.username}") String username) {
+            @Value("${telegram.bot.username}") String username){
         super(token);
         this.botUsername = username;
     }
