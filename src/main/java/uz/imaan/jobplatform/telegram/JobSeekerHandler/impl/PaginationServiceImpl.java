@@ -8,9 +8,11 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
 import uz.imaan.jobplatform.employer.job.JobStore;
 import uz.imaan.jobplatform.employer.job.JobVacancy;
+import uz.imaan.jobplatform.employer.job.JobVacancyRepository;
 import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.KeyboardService;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.PaginationService;
+
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +27,8 @@ public class PaginationServiceImpl implements PaginationService {
 
     private final JobStore jobStore;
     private final KeyboardService keyboardService;
+    private final JobVacancyRepository jobVacancyRepository;
+
 
     // ============================================
     // YORDAMCHI METODLAR
@@ -201,5 +205,167 @@ public class PaginationServiceImpl implements PaginationService {
             );
             return createHtmlMessage(chatId, msg, null);
         }
+    }
+
+    // ============================================
+    // ⭐️ KALIT SO'Z VA MAOSH FILTRI BILAN QIDIRUV
+    // ============================================
+    @Override
+    public SendMessage handleSearchPagination(Long chatId, String query, String salaryFilter, int page, Optional<JobSeekerProfile> profileOpt) {
+        try {
+            // 1. Bazadan kalit so'zga mos vakansiyalarni olish
+            List<JobVacancy> list = jobVacancyRepository.searchByKeyword(query);
+
+            // 2. Maosh bo'yicha filtrlash
+            String currentFilter = (salaryFilter == null || salaryFilter.isBlank()) ? "all" : salaryFilter;
+            list = list.stream()
+                    .filter(v -> matchesSalary(v.getSalary(), currentFilter))
+                    .toList();
+
+            if (list.isEmpty()) {
+                String emptyMsg = String.format(
+                        "🔍 <b>«%s»</b> so'rovi bo'yicha tanlangan maosh filtrida vakansiyalar topilmadi.\n\n" +
+                                "<i>Boshqa kalit so'z kiritib ko'ring yoki maosh filtrini «Barchasi»ga o'tkazing.</i>",
+                        escapeHtml(query)
+                );
+                return createHtmlMessage(chatId, emptyMsg, buildSalaryFilterKeyboard(query, currentFilter, 0, 0, List.of()));
+            }
+
+            // 3. Paginatsiya hisoblash
+            int totalItems = list.size();
+            int totalPages = (int) Math.ceil((double) totalItems / PAGE_SIZE);
+            if (page < 0) page = 0;
+            if (page >= totalPages) page = totalPages - 1;
+
+            int start = page * PAGE_SIZE;
+            int end = Math.min(start + PAGE_SIZE, totalItems);
+            List<JobVacancy> pageVacancies = list.subList(start, end);
+
+            // 4. Xabar matni
+            StringBuilder sb = new StringBuilder();
+            sb.append("🔍 <b>Qidiruv natijalari: «").append(escapeHtml(query)).append("»</b>\n")
+                    .append("📊 Jami topildi: <b>").append(totalItems).append(" ta</b> | Sahifa: <b>").append(page + 1).append("/").append(totalPages).append("</b>\n\n");
+
+            int idx = 1;
+            for (JobVacancy vac : pageVacancies) {
+                sb.append(idx++).append(". 📌 <b>").append(escapeHtml(vac.getTitle())).append("</b>\n")
+                        .append("   💰 <b>Maosh:</b> ").append(escapeHtml(vac.getSalary() != null ? vac.getSalary() : "Kelishilgan")).append("\n")
+                        .append("   🏢 <b>Kompaniya:</b> ").append(escapeHtml(vac.getCompanyName() != null ? vac.getCompanyName() : "Ko'rsatilmagan")).append("\n")
+                        .append("   📁 <b>Toifa:</b> ").append(escapeHtml(vac.getCategory())).append("\n")
+                        .append("──────────────────\n");
+            }
+
+            // 5. Tugmalar (Maosh filtri + Sahifalash)
+            InlineKeyboardMarkup markup = buildSalaryFilterKeyboard(query, currentFilter, page, totalPages, pageVacancies);
+            return createHtmlMessage(chatId, sb.toString(), markup);
+
+        } catch (Exception e) {
+            log.error("❌ Qidiruv xatoligi: {}", e.getMessage(), e);
+            return createHtmlMessage(chatId, "❌ Qidiruvda xatolik yuz berdi. Qaytadan urinib ko'ring.", null);
+        }
+    }
+
+    // Maoshni matndan sonlarga ajratib filtrga solishtirish
+    private boolean matchesSalary(String salaryText, String filter) {
+        if (filter.equals("all")) return true;
+        if (salaryText == null) return filter.equals("agreed");
+
+        String lower = salaryText.toLowerCase();
+
+        if (filter.equals("agreed")) {
+            return lower.contains("kelishilgan") || lower.contains("dogovor") || lower.contains("ko'rsatilmagan");
+        }
+
+        long amount = extractSalaryAmount(lower);
+        if (amount == 0) {
+            return filter.equals("agreed");
+        }
+
+        if (filter.equals("range_3_6")) {
+            return amount >= 3_000_000 && amount <= 6_000_000;
+        }
+        if (filter.equals("above_6")) {
+            return amount > 6_000_000;
+        }
+        return true;
+    }
+
+    private long extractSalaryAmount(String text) {
+        try {
+            // Agar "mln" bo'lsa (masalan: 4 mln yoki 4.5 mln)
+            if (text.contains("mln")) {
+                String clean = text.replaceAll("[^0-9.]", " ").trim();
+                String[] parts = clean.split("\\s+");
+                if (parts.length > 0 && !parts[0].isBlank()) {
+                    double mln = Double.parseDouble(parts[0]);
+                    return (long) (mln * 1_000_000);
+                }
+            }
+            // Agar oddiy raqamlar bo'lsa (masalan: 5 000 000 yoki 4500000)
+            String digits = text.replaceAll("[^0-9]", "");
+            if (digits.length() >= 6) { // kamida 100 000 so'm
+                return Long.parseLong(digits.substring(0, Math.min(digits.length(), 8)));
+            }
+        } catch (Exception ignored) {}
+        return 0;
+    }
+
+    // Qidiruv klaviaturasi (Maosh filtri va Raqamlar)
+    private InlineKeyboardMarkup buildSalaryFilterKeyboard(String query, String currentFilter, int page, int totalPages, List<JobVacancy> pageVacancies) {
+        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+        // 1-Qator: Maosh filtrlari tugmalari
+        List<InlineKeyboardButton> filterRow1 = new ArrayList<>();
+        filterRow1.add(InlineKeyboardButton.builder()
+                .text((currentFilter.equals("all") ? "✅ " : "") + "Hammasi")
+                .callbackData("sq_" + query + "_all_0").build());
+        filterRow1.add(InlineKeyboardButton.builder()
+                .text((currentFilter.equals("agreed") ? "✅ " : "") + "Kelishilgan")
+                .callbackData("sq_" + query + "_agreed_0").build());
+        rows.add(filterRow1);
+
+        List<InlineKeyboardButton> filterRow2 = new ArrayList<>();
+        filterRow2.add(InlineKeyboardButton.builder()
+                .text((currentFilter.equals("range_3_6") ? "✅ " : "") + "3-6 mln")
+                .callbackData("sq_" + query + "_range_3_6_0").build());
+        filterRow2.add(InlineKeyboardButton.builder()
+                .text((currentFilter.equals("above_6") ? "✅ " : "") + "6 mln+")
+                .callbackData("sq_" + query + "_above_6_0").build());
+        rows.add(filterRow2);
+
+        // 2-Qator: Vakansiyalarni ochish raqamlari [ 1️⃣ ] [ 2️⃣ ] ...
+        if (!pageVacancies.isEmpty()) {
+            List<InlineKeyboardButton> numRow = new ArrayList<>();
+            String[] emojis = {"1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"};
+            for (int i = 0; i < pageVacancies.size() && i < emojis.length; i++) {
+                numRow.add(InlineKeyboardButton.builder()
+                        .text(emojis[i])
+                        .callbackData("view_vac_" + pageVacancies.get(i).getId() + "_search_0")
+                        .build());
+            }
+            rows.add(numRow);
+        }
+
+        // 3-Qator: Sahifalash [ ⬅️ ] [ 1/3 ] [ ➡️ ]
+        if (totalPages > 1) {
+            List<InlineKeyboardButton> navRow = new ArrayList<>();
+            if (page > 0) {
+                navRow.add(InlineKeyboardButton.builder().text("⬅️").callbackData("sq_" + query + "_" + currentFilter + "_" + (page - 1)).build());
+            }
+            navRow.add(InlineKeyboardButton.builder().text((page + 1) + "/" + totalPages).callbackData("noop").build());
+            if (page < totalPages - 1) {
+                navRow.add(InlineKeyboardButton.builder().text("➡️").callbackData("sq_" + query + "_" + currentFilter + "_" + (page + 1)).build());
+            }
+            rows.add(navRow);
+        }
+
+        // 4-Qator: Orqaga
+        List<InlineKeyboardButton> backRow = new ArrayList<>();
+        backRow.add(InlineKeyboardButton.builder().text("⬅️ Toifalarga qaytish").callbackData("back_to_categories").build());
+        rows.add(backRow);
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
     }
 }
