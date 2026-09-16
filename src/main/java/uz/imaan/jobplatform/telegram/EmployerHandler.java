@@ -1602,9 +1602,6 @@ public class EmployerHandler {
         return text != null && !text.isBlank() && text.length() <= 100;
     }
 
-    // ============================================
-    // ⭐️ TUZATILGAN: isGlobalButton
-    // ============================================
     private boolean isGlobalButton(String text) {
         return text != null && (
                 text.equals("/start") ||
@@ -1616,7 +1613,6 @@ public class EmployerHandler {
                         text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии") ||
                         text.equals("📩 Arizalar") || text.equals("📩 Заявки") ||
                         text.equals("📊 Statistika") || text.equals("📊 Статистика") ||
-                        // "🚫 Bloklangan nomzodlar" OLIB TASHLANDI - bu tugma faqat SETTINGS_MENU ichida ishlaydi
                         text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") ||
                         text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") ||
                         text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("Asosiy menyu")
@@ -1837,7 +1833,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // VAKANSIYA INLINE TUGMALARI
+    // ⭐️ YANGI: HAR BIR VAKANSIYA UCHUN ALOHIDA TUGMALAR
     // ============================================
     private SendMessage showMyVacanciesWithButtons(Long chatId, String lang) {
         List<JobVacancy> myJobs = jobVacancyRepository.findAllByEmployerChatId(chatId);
@@ -1868,45 +1864,51 @@ public class EmployerHandler {
                 statusEmoji = "🔴";
             }
 
+            String jobTitle = job.getTitle() != null ? job.getTitle() : "Nomsiz";
+
+            // ===== MATN QISMI =====
             sb.append("\n").append(i + 1).append(". ")
                     .append(statusEmoji)
-                    .append(" **").append(job.getTitle() != null ? job.getTitle() : "Nomsiz")
-                    .append("**\n   💰 ").append(job.getSalary() != null ? job.getSalary() : "Kelishiladi");
+                    .append(" **").append(jobTitle).append("**\n")
+                    .append("   💰 ").append(job.getSalary() != null ? job.getSalary() : "Kelishiladi");
 
             if (isFilled) {
                 sb.append("\n   ✅ ").append(lang.equals("ru") ? "Заполнено" : "To'ldirildi");
             }
 
-            List<InlineKeyboardButton> row1 = new ArrayList<>();
+            // ===== TUGMALAR QISMI (har bir vakansiya uchun alohida) =====
 
+            // 1-qator: ✏️ Tahrirlash
             InlineKeyboardButton editBtn = new InlineKeyboardButton();
-            editBtn.setText(lang.equals("ru") ? "✏️ Изменить" : "✏️ Tahrirlash");
+            editBtn.setText(lang.equals("ru")
+                    ? "✏️ Изменить: " + jobTitle
+                    : "✏️ Tahrirlash: " + jobTitle);
             editBtn.setCallbackData("vac_edit_" + job.getId());
-            row1.add(editBtn);
+            rows.add(List.of(editBtn));
 
+            // 2-qator: 🔴 Arxivlash / 🟢 Faollashtirish
             InlineKeyboardButton toggleBtn = new InlineKeyboardButton();
             toggleBtn.setText(isActive
-                    ? (lang.equals("ru") ? "🔴 Архив" : "🔴 Arxivlash")
-                    : (lang.equals("ru") ? "🟢 Активировать" : "🟢 Faollashtirish"));
+                    ? (lang.equals("ru") ? "🔴 В архив: " + jobTitle : "🔴 Arxivlash: " + jobTitle)
+                    : (lang.equals("ru") ? "🟢 Активировать: " + jobTitle : "🟢 Faollashtirish: " + jobTitle));
             toggleBtn.setCallbackData("vac_toggle_" + job.getId());
-            row1.add(toggleBtn);
+            rows.add(List.of(toggleBtn));
 
-            List<InlineKeyboardButton> row2 = new ArrayList<>();
-
+            // 3-qator: ✅ To'ldirildi / 🟢 Faolga qaytarish
             InlineKeyboardButton filledBtn = new InlineKeyboardButton();
             filledBtn.setText(isFilled
-                    ? (lang.equals("ru") ? "🟢 Вернуть в активные" : "🟢 Faolga qaytarish")
-                    : (lang.equals("ru") ? "✅ Заполнено" : "✅ To'ldirildi"));
+                    ? (lang.equals("ru") ? "🟢 Вернуть в активные: " + jobTitle : "🟢 Faolga qaytarish: " + jobTitle)
+                    : (lang.equals("ru") ? "✅ Заполнено: " + jobTitle : "✅ To'ldirildi: " + jobTitle));
             filledBtn.setCallbackData("vac_filled_" + job.getId());
-            row2.add(filledBtn);
+            rows.add(List.of(filledBtn));
 
+            // 4-qator: 🗑 O'chirish
             InlineKeyboardButton deleteBtn = new InlineKeyboardButton();
-            deleteBtn.setText(lang.equals("ru") ? "🗑 Удалить" : "🗑 O'chirish");
+            deleteBtn.setText(lang.equals("ru")
+                    ? "🗑 Удалить: " + jobTitle
+                    : "🗑 O'chirish: " + jobTitle);
             deleteBtn.setCallbackData("vac_delete_" + job.getId());
-            row2.add(deleteBtn);
-
-            rows.add(row1);
-            rows.add(row2);
+            rows.add(List.of(deleteBtn));
         }
 
         markup.setKeyboard(rows);
