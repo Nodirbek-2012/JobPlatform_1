@@ -19,17 +19,24 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
 
     Optional<JobVacancy> findByIdAndEmployerChatId(Long id, Long employerChatId);
 
-    // ===== YANGI: Faqat aktiv vakansiyalar (JobSeeker uchun) =====
+    // ===== Faqat aktiv vakansiyalar (JobSeeker uchun) =====
     List<JobVacancy> findByIsActiveTrue();
 
-    // ===== YANGI: Employer uchun aktiv vakansiyalar =====
+    // ===== Employer uchun aktiv vakansiyalar =====
     List<JobVacancy> findAllByEmployerChatIdAndIsActiveTrue(Long employerChatId);
 
-    // ===== ⭐️ KALIT SO'Z BO'YICHA QIDIRUV (Katta-kichik harfni ajratmaydi) =====
+    // ===== KALIT SO'Z BO'YICHA QIDIRUV =====
     @Query("SELECT j FROM JobVacancy j WHERE j.isActive = true AND (" +
             "LOWER(j.title) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(j.requirements) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(j.category) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(j.companyName) LIKE LOWER(CONCAT('%', :query, '%')))")
     List<JobVacancy> searchByKeyword(@Param("query") String query);
+
+    // ===== ⭐️ YANGI: Bildirishnomasi yuborilmagan faol vakansiyalarni olish =====
+    @Query("SELECT j FROM JobVacancy j WHERE (j.isActive = true OR j.isActive IS NULL) " +
+            "AND (j.notified = false OR j.notified IS NULL)")
+    List<JobVacancy> findUnnotifiedVacancies();
+
+    List<JobVacancy> findByNotifiedFalseOrNotifiedIsNull();
 }
