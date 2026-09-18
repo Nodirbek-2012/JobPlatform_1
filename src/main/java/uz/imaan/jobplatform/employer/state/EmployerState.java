@@ -38,9 +38,16 @@ public enum EmployerState {
         WAITING_FOR_EDIT_VACANCY_REQUIREMENTS,
         WAITING_FOR_EDIT_VACANCY_WORK_HOURS,
 
-        // ===== YANGI =====
         BLOCKED_CANDIDATES_MENU,
         WAITING_FOR_BLOCK_CANDIDATE_ID,
+
+        // ===== YANGI: 4 TA FUNKSIYA =====
+        DASHBOARD,
+        SEARCH_CANDIDATES,
+        VIEW_CANDIDATE,
+        CHAT_MENU,
+        WAITING_FOR_CHAT_MESSAGE,
+        RATING_MENU,
 
         VIEWING_APPLICATIONS,
         VIEWING_STATISTICS,
