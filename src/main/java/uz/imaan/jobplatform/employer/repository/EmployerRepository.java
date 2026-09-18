@@ -22,4 +22,6 @@ public interface EmployerRepository extends JpaRepository<EmployerEntity, Long> 
     boolean existsByInn(String inn);
 
     Optional<EmployerEntity> findByPhoneNumber(String phoneNumber);
+
+    Optional<EmployerEntity> findByTelegramId(Long telegramId);
 }

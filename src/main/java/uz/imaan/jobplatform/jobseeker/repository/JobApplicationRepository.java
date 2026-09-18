@@ -36,4 +36,5 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
             @Param("employerChatId") Long employerChatId,
             @Param("status") JobApplication.ApplicationStatus status
     );
+    long countByStatus(JobApplication.ApplicationStatus status);
 }

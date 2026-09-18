@@ -1,13 +1,11 @@
 package uz.imaan.jobplatform.jobseeker.entity;
 
 import jakarta.persistence.*;
-import jakarta.validation.constraints.*;
 import lombok.*;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Entity
 @Table(name = "job_seekers")
@@ -22,79 +20,59 @@ public class JobSeekerProfile {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @NotNull(message = "User ID kiritilishi shart")
-    @Column(name = "user_id", nullable = false, unique = true)
+    private Long telegramId;
+
+    @Column(name = "user_id", unique = true, nullable = false)
     private Long userId;
 
-    @NotBlank(message = "Ism familya kiritilishi shart")
-    @Size(min = 3, max = 100, message = "Ism familya 3-100 belgidan iborat bolishi kerak")
-    @Column(name = "full_name")
+    @Column(name = "full_name", length = 100)
     private String fullName;
 
-    @Pattern(regexp = "^\\+?[0-9]{9,15}$", message = "Telefon raqam noto'g'ri formatda")
     @Column(name = "phone_number")
     private String phoneNumber;
 
-    @Size(max = 100, message = "Kasb 100 belgidan oshmasligi kerak")
-    private String profession;
-
-    @Min(value = 0, message = "Reyting 0 dan kam bo'lishi mumkin emas")
-    @Max(value = 5, message = "Reyting 5 dan oshmasligi kerak")
-    private Double rating;
-
-    @Size(max = 10, message = "Til 10 belgidan oshmasligi kerak")
-    private String language;
-
-    @NotBlank(message = "Pasport raqami kiritilishi shart")
-    @Size(min = 8, max = 20, message = "Pasport raqami 8-20 belgidan iborat bo'lishi kerak")
-    @Column(name = "passport_number")
+    @Column(name = "passport_number", length = 20)
     private String passportNumber;
 
-    @Column(name = "avatar_url")
-    private String avatarUrl;
+    @Column(name = "profession", length = 100)
+    private String profession;
 
-    @Size(max = 1000, message = "Portfolio 1000 belgidan oshmasligi kerak")
-    @Column(length = 1000)
-    private String portfolio;
+    @Column(name = "category", length = 100)
+    private String category;
 
-    @PositiveOrZero(message = "Hamyon balansi manfiy bo'lishi mumkin emas")
-    @Column(name = "wallet_balance", precision = 19, scale = 2)
-    private BigDecimal walletBalance;
+    private Double rating;
 
-    // ============================================
-    // YANGI FIELD'LAR
-    // ============================================
-    @Size(max = 1000, message = "Tajriba 1000 belgidan oshmasligi kerak")
+    @Column(name = "review_count")
+    private Integer reviewCount;
+
     @Column(name = "experience", length = 1000)
     private String experience;
 
-    @Size(max = 100, message = "Ish turi 100 belgidan oshmasligi kerak")
-    @Column(name = "preferred_job_type")
+    @Column(name = "preferred_job_type", length = 100)
     private String preferredJobType;
 
-    @Size(max = 100, message = "Kategoriya 100 belgidan oshmasligi kerak")
-    @Column(name = "category")
-    private String category;
+    @Column(name = "language", length = 10)
+    private String language;
 
-    // ============================================
-    // ADMIN UCHUN
-    // ============================================
-    @Builder.Default
+    @Column(name = "wallet_balance", precision = 19, scale = 2)
+    private BigDecimal walletBalance;
+
     @Column(name = "is_active")
     private Boolean isActive = true;
 
     @Column(name = "block_reason")
     private String blockReason;
 
-    @OneToMany(mappedBy = "jobSeeker", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
-    @Builder.Default
-    private List<BankCard> bankCards = new ArrayList<>();
-    @Column(name = "telegram_id")
-    private Long telegramId;
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
+    @Column(name = "portfolio", length = 1000)
+    private String portfolio;
 
     @Column(name = "photo_file_id")
     private String photoFileId;
 
-    @Column(name = "review_count")
-    private Integer reviewCount = 0;
+    // ===== BANK CARDS =====
+    @OneToMany(mappedBy = "jobSeeker", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<BankCard> bankCards = new ArrayList<>();
 }

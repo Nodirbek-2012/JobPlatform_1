@@ -422,7 +422,7 @@ public class KeyboardServiceImpl implements KeyboardService {
     // ============================================
     @Override
     public ReplyKeyboardMarkup getWalletKeyboard(Optional<JobSeekerProfile> profileOpt) {
-        boolean hasCard = profileOpt.map(p -> p.getBankCards() != null && !p.getBankCards().isEmpty()).orElse(false);
+        boolean hasCard = profileOpt.map(p -> p.getPreferredJobType() != null && !p.getPreferredJobType().isEmpty()).orElse(false);
         return getWalletKeyboard(profileOpt, hasCard);
     }
 

@@ -62,4 +62,5 @@ public class JobApplication {
     protected void onUpdate() {
         updatedAt = LocalDateTime.now();
     }
+
 }
