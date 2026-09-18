@@ -184,19 +184,28 @@ public class TelegramCallbackService {
             return;
         }
 
+        // ⭐️ KASB YANGILANGANDA ISHLAYDIGAN QISM:
         if (state == JobSeekerState.WAITING_FOR_PROFESSION) {
             String categoryName = getCategoryNameByKey(categoryKey);
+            JobSeekerProfile profile = null;
             if (profileOpt.isPresent()) {
-                JobSeekerProfile profile = profileOpt.get();
+                profile = profileOpt.get();
                 profile.setProfession(categoryName);
                 profile.setCategory(categoryName);
                 jobSeekerProfileRepository.save(profile);
             }
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
+
+            // 1. «Kasb yangilandi» xabarini yuborish
             SendMessage okMsg = new SendMessage(chatId.toString(), "✅ Kasb yangilandi: <b>" + categoryName + "</b>");
             okMsg.setParseMode("HTML");
-            okMsg.setReplyMarkup(keyboardService.getProfileKeyboard(profileOpt));
             bot.executeMessage(okMsg);
+
+            // 2. Darhol to'liq profil kartasini va menyuni chiqarish
+            SendMessage profileMsg = jobSeekerHandler.showProfile(chatId, Optional.ofNullable(profile));
+            if (profileMsg != null) {
+                bot.executeMessage(profileMsg);
+            }
             return;
         }
 
@@ -373,13 +382,13 @@ public class TelegramCallbackService {
         bot.executeMessage(notifySeeker);
     }
 
+
     private void handleApply(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
-        bot.sendAnswerCallback(callbackQuery.getId(), null, false);
         Long vacancyId = Long.parseLong(callbackQuery.getData().replace("apply_", ""));
 
         Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
         if (profileOpt.isEmpty()) {
-            bot.executeMessage(new SendMessage(chatId.toString(), "❌ Iltimos, avval ro'yxatdan o'ting!"));
+            bot.sendAnswerCallback(callbackQuery.getId(), "❌ Ariza topshirish uchun avval ro'yxatdan o'ting!", true);
             return;
         }
 
@@ -387,11 +396,19 @@ public class TelegramCallbackService {
                 .filter(v -> v.getId().equals(vacancyId)).findFirst().orElse(null);
 
         if (vacancy == null) {
-            bot.executeMessage(new SendMessage(chatId.toString(), "❌ Vakansiya topilmadi!"));
+            bot.sendAnswerCallback(callbackQuery.getId(), "❌ Vakansiya topilmadi!", true);
             return;
         }
 
         JobSeekerProfile profile = profileOpt.get();
+
+        // ⭐️ 1. TAKRORIY ARIZANI BLOKLASH
+        if (jobApplicationRepository.existsByJobIdAndJobSeekerId(vacancy.getId(), profile.getId())) {
+            bot.sendAnswerCallback(callbackQuery.getId(), "⚠️ Siz bu vakansiyaga allaqachon ariza topshirgansiz!", true);
+            return;
+        }
+
+        // ⭐️ 2. ARIZANI BAZAGA SAQLASH
         JobApplication application = new JobApplication();
         application.setJobId(vacancy.getId());
         application.setJobSeekerId(profile.getId());
@@ -399,6 +416,10 @@ public class TelegramCallbackService {
         application.setStatus(JobApplication.ApplicationStatus.PENDING);
         JobApplication savedApp = jobApplicationRepository.save(application);
 
+        // Telegram pop-up xabarnomasi
+        bot.sendAnswerCallback(callbackQuery.getId(), "✅ Arizangiz muvaffaqiyatli yuborildi!", false);
+
+        // ⭐️ 3. ISH BERUVCHIGA XABAR YUBORISH
         Long employerChatId = vacancy.getEmployerChatId();
         if (employerChatId != null) {
             SendMessage notifyMsg = employerHandler.buildApplicationNotification(
@@ -411,7 +432,12 @@ public class TelegramCallbackService {
             bot.executeMessage(notifyMsg);
         }
 
-        bot.executeMessage(new SendMessage(chatId.toString(), "✅ Arizangiz ish beruvchiga yuborildi!"));
+        // ⭐️ 4. ISH IZLOVCHIGA TASDIQ XABARI
+        SendMessage seekerMsg = new SendMessage(chatId.toString(),
+                "✅ <b>Arizangiz ish beruvchiga yuborildi!</b>\n\n" +
+                        "Holatni bilish uchun <b>«📂 Arizalar»</b> menyusini tekshirishingiz mumkin.");
+        seekerMsg.setParseMode("HTML");
+        bot.executeMessage(seekerMsg);
     }
 
     private void handleFavoriteToggle(CallbackQuery callbackQuery, Long chatId, Integer messageId, Telegram bot) {

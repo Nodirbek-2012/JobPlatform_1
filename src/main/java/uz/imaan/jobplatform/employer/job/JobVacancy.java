@@ -38,4 +38,9 @@ public class JobVacancy {
 
     @Column(name = "source_url")
     private String sourceUrl;
+
+    // ⭐️ YANGI: Foydalanuvchilarga bildirishnoma yuborilganligini belgilovchi maydon
+    @Builder.Default
+    @Column(name = "notified")
+    private Boolean notified = false;
 }

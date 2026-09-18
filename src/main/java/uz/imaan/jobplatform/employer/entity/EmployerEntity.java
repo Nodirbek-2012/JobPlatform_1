@@ -61,8 +61,10 @@ public class EmployerEntity {
     @Column(length = 500)
     private String companyLogoFileId;
 
-    // ===== BLOKLANGAN NOMZODLAR =====
-    // Format: "123456,789012,345678"
     @Column(length = 5000)
     private String blockedCandidateIds;
+
+    // ===== YANGI: REYTING =====
+    private Double rating;
+    private Integer reviewCount;
 }

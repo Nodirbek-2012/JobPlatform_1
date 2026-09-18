@@ -30,13 +30,16 @@ public class HhJobService {
         log.info("🚀 HeadHunter (hh.uz) dan yangi vakansiyalarni tortish boshlandi...");
 
         try {
-            // Haqiqiy brauzer ko'rinishida so'rov yuborish (403 xatosini chetlab o'tadi)
+            // ⭐️ HH API talab qiladigan rasmiy dastur formati (403 xatosini oldini oladi)
+            String appUserAgent = "JobPlatformBot/1.0 (support@imaan.uz)";
+
             Connection.Response response = Jsoup.connect(HH_API_URL)
                     .ignoreContentType(true)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .userAgent(appUserAgent)
+                    .header("HH-User-Agent", appUserAgent)
                     .header("Accept", "application/json")
                     .header("Accept-Language", "ru-RU,ru;q=0.9,uz;q=0.8,en;q=0.7")
-                    .timeout(15000)
+                    .timeout(20000)
                     .execute();
 
             if (response.body() == null || response.body().isBlank()) return;
@@ -103,6 +106,7 @@ public class HhJobService {
                         .externalId(hhId)
                         .sourceUrl(url)
                         .isActive(true)
+                        .notified(false) // ⭐️ JobAlertService yangi e'lon sifatida aniqlashi uchun
                         .build();
 
                 jobVacancyRepository.save(vacancy);

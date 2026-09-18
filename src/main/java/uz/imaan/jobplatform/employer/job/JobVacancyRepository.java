@@ -19,25 +19,17 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
 
     Optional<JobVacancy> findByIdAndEmployerChatId(Long id, Long employerChatId);
 
+    // ===== YANGI: Faqat aktiv vakansiyalar (JobSeeker uchun) =====
     List<JobVacancy> findByIsActiveTrue();
 
+    // ===== YANGI: Employer uchun aktiv vakansiyalar =====
     List<JobVacancy> findAllByEmployerChatIdAndIsActiveTrue(Long employerChatId);
 
-    long countByIsActiveTrue();
-
-    long countByVacancyStatus(String vacancyStatus);
-
-    long countByIsActiveTrueAndVacancyStatusIsNull();
-
-    // ===== Для /info — количество вакансий работодателя =====
-    long countByEmployerChatId(Long employerChatId);
-
-    @Query("""
-            SELECT v FROM JobVacancy v
-            WHERE LOWER(v.title) LIKE LOWER(CONCAT('%', :keyword, '%'))
-               OR LOWER(v.category) LIKE LOWER(CONCAT('%', :keyword, '%'))
-               OR LOWER(v.companyName) LIKE LOWER(CONCAT('%', :keyword, '%'))
-               OR LOWER(v.requirements) LIKE LOWER(CONCAT('%', :keyword, '%'))
-            """)
-    List<JobVacancy> searchByKeyword(@Param("keyword") String keyword);
+    // ===== ⭐️ KALIT SO'Z BO'YICHA QIDIRUV (Katta-kichik harfni ajratmaydi) =====
+    @Query("SELECT j FROM JobVacancy j WHERE j.isActive = true AND (" +
+            "LOWER(j.title) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+            "LOWER(j.requirements) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+            "LOWER(j.category) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+            "LOWER(j.companyName) LIKE LOWER(CONCAT('%', :query, '%')))")
+    List<JobVacancy> searchByKeyword(@Param("query") String query);
 }
