@@ -184,19 +184,28 @@ public class TelegramCallbackService {
             return;
         }
 
+        // ⭐️ KASB YANGILANGANDA ISHLAYDIGAN QISM:
         if (state == JobSeekerState.WAITING_FOR_PROFESSION) {
             String categoryName = getCategoryNameByKey(categoryKey);
+            JobSeekerProfile profile = null;
             if (profileOpt.isPresent()) {
-                JobSeekerProfile profile = profileOpt.get();
+                profile = profileOpt.get();
                 profile.setProfession(categoryName);
                 profile.setCategory(categoryName);
                 jobSeekerProfileRepository.save(profile);
             }
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
+
+            // 1. «Kasb yangilandi» xabarini yuborish
             SendMessage okMsg = new SendMessage(chatId.toString(), "✅ Kasb yangilandi: <b>" + categoryName + "</b>");
             okMsg.setParseMode("HTML");
-            okMsg.setReplyMarkup(keyboardService.getProfileKeyboard(profileOpt));
             bot.executeMessage(okMsg);
+
+            // 2. Darhol to'liq profil kartasini va menyuni chiqarish
+            SendMessage profileMsg = jobSeekerHandler.showProfile(chatId, Optional.ofNullable(profile));
+            if (profileMsg != null) {
+                bot.executeMessage(profileMsg);
+            }
             return;
         }
 

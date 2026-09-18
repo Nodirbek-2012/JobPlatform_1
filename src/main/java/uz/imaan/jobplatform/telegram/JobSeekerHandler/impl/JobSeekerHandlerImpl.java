@@ -223,6 +223,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     // ============================================
     // ASOSIY HANDLE METODI
     // ============================================
+
     @Override
     public SendMessage handleJobSeeker(Message message) {
         if (message == null) return null;
@@ -263,7 +264,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== ⭐️ TO'G'RILANGAN NAVIGATSIYA (BEKOR QILISH VA ORQAGA) =====
+        // ===== TO'G'RILANGAN NAVIGATSIYA (BEKOR QILISH VA ORQAGA) =====
         if (text.equals("⬅️ Profilga qaytish") || text.equals("⬅️ Назад в профиль") || text.equals("⬅️ Back to profile")) {
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             return showProfile(chatId, profileOpt);
@@ -324,16 +325,21 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
-        // ===== ⭐️ 1. «✏️ TAHRIRLASH» BOSILGANDA =====
-        if (text.equals("✏️ Tahrirlash") || text.contains("Tahrirlash") || text.contains("Редактировать")) {
+        // ===== 1. «✏️ TAHRIRLASH» BOSILGANDA =====
+        if (text.equals("✏️ Tahrirlash") || text.contains("Tahrirlash") || text.contains("Редактировать") || text.contains("Edit")) {
             stateManager.setState(chatId, JobSeekerState.EDIT_MENU);
-            SendMessage msg = new SendMessage(chatId.toString(), "✏️ <b>Qaysi ma'lumotingizni o'zgartirmoqchisiz?</b>\nPastdagi bo'limlardan birini tanlang:");
+            String promptMsg = getText(profileOpt, chatId,
+                    "✏️ <b>Какую информацию вы хотите изменить?</b>\nВыберите один из разделов ниже:",
+                    "✏️ <b>Qaysi ma'lumotingizni o'zgartirmoqchisiz?</b>\nPastdagi bo'limlardan birini tanlang:",
+                    "✏️ <b>What information would you like to edit?</b>\nSelect one of the sections below:"
+            );
+            SendMessage msg = new SendMessage(chatId.toString(), promptMsg);
             msg.setParseMode("HTML");
             msg.setReplyMarkup(getEditProfileKeyboard(profileOpt));
             return msg;
         }
 
-        // ===== ⭐️ 2. TAHRIRLASH MENYUSIDAGI TANLOVLAR =====
+        // ===== 2. TAHRIRLASH MENYUSIDAGI TANLOVLAR =====
         if (state == JobSeekerState.EDIT_MENU && message.hasText()) {
             if (text.equals("👤 Ism-familiya") || text.contains("Ism") || text.contains("Ф.И.О") || text.contains("Name")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EDIT_NAME);
@@ -376,14 +382,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== ⭐️ 4. KIRITILGAN TAHRIRNI SAQLASH VA DARHOL PROFILGA QAYTISH =====
+        // ===== 3. KIRITILGAN TAHRIRNI SAQLASH VA DARHOL PROFILGA QAYTISH =====
         if (state == JobSeekerState.WAITING_FOR_EDIT_NAME && message.hasText() && profileOpt.isPresent()) {
             JobSeekerProfile profile = profileOpt.get();
             profile.setFullName(text.trim());
             jobSeekerProfileRepository.save(profile);
 
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
-            executeMessage(createHtmlMessage(chatId, "✅ <b>Ism-familiyangiz muvaffaqiyatli yangilandi!</b>", null));
+            String okMsg = getText(profileOpt, chatId,
+                    "✅ <b>Ваше имя успешно обновлено!</b>",
+                    "✅ <b>Ism-familiyangiz muvaffaqiyatli yangilandi!</b>",
+                    "✅ <b>Your name has been updated successfully!</b>");
+            executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
 
@@ -393,7 +403,11 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             jobSeekerProfileRepository.save(profile);
 
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
-            executeMessage(createHtmlMessage(chatId, "✅ <b>Pasport ma'lumotlaringiz yangilandi!</b>", null));
+            String okMsg = getText(profileOpt, chatId,
+                    "✅ <b>Паспортные данные успешно обновлены!</b>",
+                    "✅ <b>Pasport ma'lumotlaringiz yangilandi!</b>",
+                    "✅ <b>Passport information updated successfully!</b>");
+            executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
 
@@ -403,7 +417,11 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             jobSeekerProfileRepository.save(profile);
 
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
-            executeMessage(createHtmlMessage(chatId, "✅ <b>Ish tajribangiz yangilandi!</b>", null));
+            String okMsg = getText(profileOpt, chatId,
+                    "✅ <b>Опыт работы успешно обновлен!</b>",
+                    "✅ <b>Ish tajribangiz yangilandi!</b>",
+                    "✅ <b>Work experience updated successfully!</b>");
+            executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
 
@@ -421,10 +439,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 jobSeekerProfileRepository.save(profile);
 
                 stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
-                executeMessage(createHtmlMessage(chatId, "✅ <b>Telefon raqamingiz yangilandi!</b>", null));
+                String okMsg = getText(profileOpt, chatId,
+                        "✅ <b>Номер телефона успешно обновлен!</b>",
+                        "✅ <b>Telefon raqamingiz yangilandi!</b>",
+                        "✅ <b>Phone number updated successfully!</b>");
+                executeMessage(createHtmlMessage(chatId, okMsg, null));
                 return showProfile(chatId, Optional.of(profile));
             } else {
-                return createMessage(chatId, "❌ Telefon raqam olinmadi. Iltimos, raqamni yozing yoki kontakt orqali yuboring:", keyboardService.getPhoneKeyboard());
+                String errPhone = getText(profileOpt, chatId,
+                        "❌ Номер телефона не получен. Введите номер или отправьте контакт:",
+                        "❌ Telefon raqam olinmadi. Iltimos, raqamni yozing yoki kontakt orqali yuboring:",
+                        "❌ Phone number not received. Please type or share contact:");
+                return createMessage(chatId, errPhone, keyboardService.getPhoneKeyboard());
             }
         }
 
@@ -519,7 +545,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         // ===== ASOSIY MENYU TUGMALARI =====
         switch (text) {
-            // ⭐️ 1-O'ZGARTIRISH: Matn kiritish imkoniyatini bildirish
             case "🔍 Ish qidirish":
             case "🔍 Поиск работы":
             case "🔍 Job search":
@@ -528,7 +553,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                         "💡 <i>Masalan: Java, Kassir, Haydovchi, Administrator, Qo'riqchi</i>";
                 return createHtmlMessage(chatId, searchMsg, keyboardService.getCategoryInlineKeyboard(profileOpt));
 
-            // SARALANGANLAR
             case "⭐ Saralanganlar":
             case "⭐ Избранное":
             case "⭐ Favorites":
@@ -654,7 +678,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return handleSettingsMenu(chatId, text, profileOpt);
         }
 
-        // ⭐️ 2-O'ZGARTIRISH: ERKIN MATN ORQALI KALIT SO'Z BO'YICHA QIDIRUV (Masalan: Java, Kassir, Haydovchi)
+        // ⭐️ ERKIN MATN ORQALI QIDIRUV
         if (message.hasText() && !text.startsWith("/") && text.length() >= 2) {
             if (state == JobSeekerState.JOB_SEARCH || state == JobSeekerState.MAIN_MENU || state == JobSeekerState.NONE) {
                 stateManager.setState(chatId, JobSeekerState.JOB_SEARCH);
@@ -973,6 +997,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     // ============================================
     // PROFIL METODLARI (AVATAR INTEGRATSIYASI BILAN)
     // ============================================
+
     @Override
     public SendMessage showProfile(Long chatId, Optional<JobSeekerProfile> profileOpt) {
         if (profileOpt.isEmpty()) {
@@ -981,25 +1006,33 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     "❌ Siz hali ro'yxatdan o'tmagansiz!",
                     "❌ You are not registered yet!"
             );
-            return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
+            return createHtmlMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
         JobSeekerProfile profile = profileOpt.get();
         String profileInfoText = getProfileInfo(profile, profileOpt);
 
+        // 1. Agar rasm mavjud bo'lsa, uni HTML rejimida yuborishga urinadi
         if (profile.getPhotoFileId() != null && !profile.getPhotoFileId().isBlank()) {
-            SendPhoto sendPhoto = new SendPhoto();
-            sendPhoto.setChatId(chatId.toString());
-            sendPhoto.setPhoto(new InputFile(profile.getPhotoFileId()));
-            sendPhoto.setCaption(profileInfoText);
-            sendPhoto.setParseMode("Markdown");
-            sendPhoto.setReplyMarkup(keyboardService.getProfileKeyboard(profileOpt));
+            try {
+                SendPhoto sendPhoto = new SendPhoto();
+                sendPhoto.setChatId(chatId.toString());
+                sendPhoto.setPhoto(new InputFile(profile.getPhotoFileId()));
+                sendPhoto.setCaption(profileInfoText);
+                sendPhoto.setParseMode("HTML");
+                sendPhoto.setReplyMarkup(keyboardService.getProfileKeyboard(profileOpt));
 
-            executePhoto(sendPhoto);
-            return null;
+                Telegram bot = applicationContext.getBean(Telegram.class);
+                bot.execute(sendPhoto);
+                return null;
+            } catch (Exception e) {
+                log.warn("⚠️ Profil rasmini yuborishda xatolik, matn ko'rinishida chiqariladi: {}", e.getMessage());
+                // Rasm xato bersa, dastur to'xtab qolmaydi — pastdagi createHtmlMessage ishga tushadi
+            }
         }
 
-        return createMessage(chatId, profileInfoText, keyboardService.getProfileKeyboard(profileOpt));
+        // 2. Rasm bo'lmasa yoki rasm xato bersa — toza HTML xabar yuboriladi
+        return createHtmlMessage(chatId, profileInfoText, keyboardService.getProfileKeyboard(profileOpt));
     }
 
     @Override
