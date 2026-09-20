@@ -7,10 +7,14 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Entity
-@Table(name = "job_seekers")
+@Table(name = "job_seekers", indexes = {
+        @Index(name = "idx_seeker_user_id", columnList = "user_id", unique = true),
+        @Index(name = "idx_seeker_category", columnList = "category"),
+        @Index(name = "idx_seeker_profession", columnList = "profession"),
+        @Index(name = "idx_seeker_is_active", columnList = "is_active")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -89,12 +93,14 @@ public class JobSeekerProfile {
     @OneToMany(mappedBy = "jobSeeker", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private List<BankCard> bankCards = new ArrayList<>();
+
     @Column(name = "telegram_id")
     private Long telegramId;
 
     @Column(name = "photo_file_id")
     private String photoFileId;
 
+    @Builder.Default
     @Column(name = "review_count")
     private Integer reviewCount = 0;
 }
