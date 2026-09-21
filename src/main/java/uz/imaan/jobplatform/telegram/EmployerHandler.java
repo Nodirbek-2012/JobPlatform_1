@@ -55,11 +55,10 @@ public class EmployerHandler {
     private final Map<Long, Map<String, String>> draftData = new ConcurrentHashMap<>();
 
     private static final Pattern PASSPORT_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
-    private static final Pattern PHONE_PATTERN = Pattern.compile("^\\+998[0-9]{9}$");
 
     private static final List<String> CANCEL_WORDS = List.of(
-            "❌ Bekor qilish", "❌ Отмена", "Bekor qilish", "Отмена",
-            "Yo'q", "Йўқ", "Нет", "Нет компании", "Kompaniya yo'q"
+            "❌ Bekor qilish", "❌ Отмена", "❌ Cancel",
+            "Bekor qilish", "Отмена", "Cancel"
     );
 
     public EmployerHandler(
@@ -82,7 +81,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // ASOSIY METOD
+    // ГЛАВНЫЙ ОБРАБОТЧИК ТЕКСТА
     // ============================================
     public SendMessage handleEmployer(Message message) {
         if (message == null) return null;
@@ -93,31 +92,47 @@ public class EmployerHandler {
 
         Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
         String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
-
-        // ===== LOGOTIP YUKLASH =====
         EmployerState currentState = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
+
+        // ===== РЕГИСТРАЦИЯ: ВЫБОР ЯЗЫКА СНАЧАЛА (через INLINE) =====
+        boolean notRegistered = profileOpt.isEmpty()
+                || profileOpt.get().getFullName() == null
+                || profileOpt.get().getFullName().isBlank();
+
+        if (notRegistered) {
+            // /start или пустое — показать выбор языка через INLINE
+            if (text.equals("/start") || text.equals("/menu")
+                    || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
+                    || text.equals("🏠 Main menu") || text.isBlank()) {
+                states.put(chatId, EmployerState.WAITING_FOR_LANGUAGE);
+                return createInlineLanguageMessage(chatId,
+                        "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
+            }
+
+            // Если ждём язык и пришёл текст (не callback)
+            if (currentState == EmployerState.WAITING_FOR_LANGUAGE) {
+                return createInlineLanguageMessage(chatId,
+                        "⚠️ Iltimos, tugmalardan birini tanlang / Выберите кнопку / Please choose a button:");
+            }
+
+            // Идём по шагам регистрации
+            return handleRegistration(chatId, text, message, lang, profileOpt);
+        }
+
+        // ===== ЛОГОТИП =====
         if (currentState == EmployerState.WAITING_FOR_COMPANY_LOGO) {
-            if (message.hasPhoto() || (message.hasDocument() &&
-                    message.getDocument().getMimeType() != null &&
-                    message.getDocument().getMimeType().startsWith("image/"))) {
-
-                String fileId;
-                if (message.hasPhoto()) {
-                    fileId = message.getPhoto().get(message.getPhoto().size() - 1).getFileId();
-                } else {
-                    fileId = message.getDocument().getFileId();
-                }
-
-                if (profileOpt.isEmpty()) {
-                    states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                    return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
-                }
+            if (message.hasPhoto() || (message.hasDocument()
+                    && message.getDocument().getMimeType() != null
+                    && message.getDocument().getMimeType().startsWith("image/"))) {
+                String fileId = message.hasPhoto()
+                        ? message.getPhoto().get(message.getPhoto().size() - 1).getFileId()
+                        : message.getDocument().getFileId();
                 EmployerEntity entity = profileOpt.get();
                 entity.setCompanyLogoFileId(fileId);
                 employerRepository.save(entity);
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
                 return createMessage(chatId,
-                        getText(lang, "✅ Logotip saqlandi!", "✅ Логотип сохранён!"),
+                        getText(lang, "✅ Logotip saqlandi!", "✅ Логотип сохранён!", "✅ Logo saved!"),
                         getCompanyInfoKeyboard(lang));
             }
             if (isCancelText(text)) {
@@ -125,33 +140,31 @@ public class EmployerHandler {
                 return showCompanyInfo(chatId, profileOpt, lang);
             }
             return createMessage(chatId,
-                    getText(lang, "⚠️ Iltimos, rasm yuboring yoki bekor qiling:",
-                            "⚠️ Отправьте изображение или отмените:"),
+                    getText(lang, "⚠️ Rasm yuboring yoki bekor qiling:",
+                            "⚠️ Отправьте изображение или отмените:",
+                            "⚠️ Send image or cancel:"),
                     getCancelKeyboard(lang));
         }
 
-        // ===== CHAT XABAR YUBORISH =====
+        // ===== ЧАТ =====
         if (currentState == EmployerState.WAITING_FOR_CHAT_MESSAGE) {
             String partnerIdStr = draftData.get(chatId).get("chat_partner_id");
             if (partnerIdStr == null) {
                 states.put(chatId, EmployerState.CHAT_MENU);
                 return showChatMenu(chatId, lang);
             }
-
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.CHAT_MENU);
                 return showChatMenu(chatId, lang);
             }
-
             Long partnerId = Long.parseLong(partnerIdStr);
-
             if (text == null || text.isBlank() || text.length() > 4000) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Xabar 1-4000 belgi orasida bo'lishi kerak:",
-                                "⚠️ Сообщение от 1 до 4000 символов:"),
+                        getText(lang, "⚠️ Xabar 1-4000 belgi:",
+                                "⚠️ Сообщение 1-4000:",
+                                "⚠️ Message 1-4000:"),
                         getChatKeyboard(lang));
             }
-
             ChatMessage msg = ChatMessage.builder()
                     .senderChatId(chatId)
                     .receiverChatId(partnerId)
@@ -159,120 +172,94 @@ public class EmployerHandler {
                     .isRead(false)
                     .build();
             chatMessageRepository.save(msg);
-
             try {
                 SendMessage notifyMsg = new SendMessage(partnerId.toString(),
                         getText(lang, "💬 **Yangi xabar:**\n\n" + text,
-                                "💬 **Новое сообщение:**\n\n" + text));
+                                "💬 **Новое сообщение:**\n\n" + text,
+                                "💬 **New message:**\n\n" + text));
                 notifyMsg.setParseMode("Markdown");
                 telegram.execute(notifyMsg);
             } catch (Exception e) {
-                log.error("❌ Chat xabar yuborishda xatolik", e);
+                log.error("❌ Chat error", e);
             }
-
             return showChatMessages(chatId, partnerId, lang);
         }
 
-        boolean isRegistrationNeeded = profileOpt.isEmpty() ||
-                profileOpt.get().getFullName() == null ||
-                profileOpt.get().getFullName().isBlank() ||
-                profileOpt.get().getFullName().toLowerCase().contains("employer");
-
-        if (isRegistrationNeeded) {
-            if (text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("Asosiy menyu") || text.equals("/start")) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-            }
-            return handleRegistration(chatId, text, message, lang, profileOpt);
-        }
-
-        // Global buyruqlar
+        // ===== ГЛОБАЛЬНЫЕ КНОПКИ =====
         if (isGlobalButton(text)) {
             draftData.get(chatId).clear();
             states.put(chatId, EmployerState.MAIN_MENU);
 
-            if (text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("Asosiy menyu") || text.equals("/start")) {
+            if (text.equals("/start") || text.equals("🏠 Asosiy menyu")
+                    || text.equals("🏠 Главное меню") || text.equals("🏠 Main menu")) {
                 return createMessage(chatId,
-                        getText(lang,
-                                "🏠 **Xush kelibsiz!**\n\nKerakli bo'limni tanlang:",
-                                "🏠 **Добро пожаловать!**\n\nВыберите нужный раздел:"),
+                        getText(lang, "🏠 **Xush kelibsiz!**\n\nKerakli bo'limni tanlang:",
+                                "🏠 **Добро пожаловать!**\n\nВыберите раздел:",
+                                "🏠 **Welcome!**\n\nChoose section:"),
                         getMainMenuKeyboard(lang));
             }
-
             if (text.equals("📊 Dashboard") || text.equals("📊 Дашборд")) {
                 states.put(chatId, EmployerState.DASHBOARD);
                 return showDashboard(chatId, lang);
             }
-
-            if (text.equals("👤 Profilim") || text.equals("👤 Профиль")) {
+            if (text.equals("👤 Profilim") || text.equals("👤 Профиль") || text.equals("👤 Profile")) {
                 return showProfile(chatId, profileOpt, lang);
             }
-
-            if (text.equals("🏢 Kompaniya") || text.equals("🏢 Компания")) {
+            if (text.equals("🏢 Kompaniya") || text.equals("🏢 Компания") || text.equals("🏢 Company")) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
                 return showCompanyInfo(chatId, profileOpt, lang);
             }
-
-            if (text.equals("✏️ Profilni tahrirlash") || text.equals("✏️ Редактировать профиль")) {
+            if (text.equals("✏️ Profilni tahrirlash") || text.equals("✏️ Редактировать профиль") || text.equals("✏️ Edit profile")) {
                 states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
                 return createMessage(chatId,
-                        getText(lang,
-                                "✏️ **Profilni tahrirlash:**\n\nNimani o'zgartirmoqchisiz?",
-                                "✏️ **Редактировать профиль:**\n\nЧто хотите изменить?"),
+                        getText(lang, "✏️ **Tahrirlash:**\n\nNimani?",
+                                "✏️ **Редактировать:**\n\nЧто?",
+                                "✏️ **Edit:**\n\nWhat?"),
                         getEditProfileKeyboard(lang));
             }
-
-            if (text.equals("⚙️ Sozlamalar") || text.equals("⚙️ Настройки")) {
+            if (text.equals("⚙️ Sozlamalar") || text.equals("⚙️ Настройки") || text.equals("⚙️ Settings")) {
                 states.put(chatId, EmployerState.SETTINGS_MENU);
                 return createMessage(chatId,
-                        getText(lang, "⚙️ **Sozlamalar bo'limi:**", "⚙️ **Раздел настроек:**"),
+                        getText(lang, "⚙️ **Sozlamalar:**", "⚙️ **Настройки:**", "⚙️ **Settings:**"),
                         getSettingsKeyboard(lang));
             }
-
-            if (text.equals("📢 Vakansiya yaratish") || text.equals("📢 Создать вакансию")) {
+            if (text.equals("📢 Vakansiya yaratish") || text.equals("📢 Создать вакансию") || text.equals("📢 Create vacancy")) {
                 states.put(chatId, EmployerState.WAITING_FOR_TITLE);
                 return createMessage(chatId,
-                        getText(lang,
-                                "📝 **Ish sarlavhasini kiriting:**",
-                                "📝 **Введите название вакансии:**"),
+                        getText(lang, "📝 **Ish sarlavhasini kiriting:**",
+                                "📝 **Введите название вакансии:**",
+                                "📝 **Enter vacancy title:**"),
                         getCancelKeyboard(lang));
             }
-
-            if (text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии")) {
+            if (text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии") || text.equals("📋 My vacancies")) {
                 return showMyVacanciesWithButtons(chatId, lang);
             }
-
-            if (text.equals("📩 Arizalar") || text.equals("📩 Заявки")) {
+            if (text.equals("📩 Arizalar") || text.equals("📩 Заявки") || text.equals("📩 Applications")) {
                 states.put(chatId, EmployerState.VIEWING_APPLICATIONS);
                 return showApplications(chatId, lang);
             }
-
-            // ===== 1. DASHBOARD (дублирующая кнопка, оставляю на всякий) =====
-            if (text.equals("📊 Statistika") || text.equals("📊 Статистика")) {
+            if (text.equals("📊 Statistika") || text.equals("📊 Статистика") || text.equals("📊 Statistics")) {
                 states.put(chatId, EmployerState.DASHBOARD);
                 return showDashboard(chatId, lang);
             }
-
-            // ===== 2. NOMZOD IZLASH =====
-            if (text.equals("🔍 Nomzod izlash") || text.equals("🔍 Поиск кандидатов")) {
+            if (text.equals("🔍 Nomzod izlash") || text.equals("🔍 Поиск кандидатов") || text.equals("🔍 Search candidates")) {
                 states.put(chatId, EmployerState.SEARCH_CANDIDATES);
                 return showCandidateSearch(chatId, lang);
             }
-
-            // ===== 3. CHATLAR =====
-            if (text.equals("💬 Chatlar") || text.equals("💬 Чаты")) {
+            if (text.equals("💬 Chatlar") || text.equals("💬 Чаты") || text.equals("💬 Chats")) {
                 states.put(chatId, EmployerState.CHAT_MENU);
                 return showChatMenu(chatId, lang);
             }
-
-            // ===== 4. REYTING =====
-            if (text.equals("⭐ Reytingim") || text.equals("⭐ Мой рейтинг")) {
+            if (text.equals("⭐ Reytingim") || text.equals("⭐ Мой рейтинг") || text.equals("⭐ My rating")) {
                 states.put(chatId, EmployerState.RATING_MENU);
                 return showEmployerRating(chatId, lang);
             }
-
-            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("❌ Bekor qilish") || text.equals("❌ Отмена")) {
+            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")
+                    || text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") || text.equals("❌ Cancel")) {
                 return createMessage(chatId,
-                        getText(lang, "📢 **Ish beruvchi menyusi:**", "📢 **Меню работодателя:**"),
+                        getText(lang, "📢 **Ish beruvchi menyusi:**",
+                                "📢 **Меню работодателя:**",
+                                "📢 **Employer menu:**"),
                         getMainMenuKeyboard(lang));
             }
         }
@@ -280,16 +267,16 @@ public class EmployerHandler {
         EmployerState state = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
 
         // ===== DASHBOARD =====
-        if (state == EmployerState.DASHBOARD) {
-            return showDashboard(chatId, lang);
-        }
+        if (state == EmployerState.DASHBOARD) return showDashboard(chatId, lang);
 
-        // ===== NOMZODLAR BAZASI =====
+        // ===== НОМЗОДЫ =====
         if (state == EmployerState.SEARCH_CANDIDATES) {
-            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
+            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return createMessage(chatId,
-                        getText(lang, "📢 **Ish beruvchi menyusi:**", "📢 **Меню работодателя:**"),
+                        getText(lang, "📢 **Ish beruvchi menyusi:**",
+                                "📢 **Меню работодателя:**",
+                                "📢 **Employer menu:**"),
                         getMainMenuKeyboard(lang));
             }
             return showCandidateSearch(chatId, lang);
@@ -297,65 +284,70 @@ public class EmployerHandler {
 
         // ===== CHAT MENU =====
         if (state == EmployerState.CHAT_MENU) {
-            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
+            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return createMessage(chatId,
-                        getText(lang, "📢 **Ish beruvchi menyusi:**", "📢 **Меню работодателя:**"),
+                        getText(lang, "📢 **Ish beruvchi menyusi:**",
+                                "📢 **Меню работодателя:**",
+                                "📢 **Employer menu:**"),
                         getMainMenuKeyboard(lang));
             }
             return showChatMenu(chatId, lang);
         }
 
-        // ===== REYTING =====
-        if (state == EmployerState.RATING_MENU) {
-            return showEmployerRating(chatId, lang);
-        }
+        // ===== РЕЙТИНГ =====
+        if (state == EmployerState.RATING_MENU) return showEmployerRating(chatId, lang);
 
-        // ===== KOMPANIYA MA'LUMOTLARI =====
+        // ===== КОМПАНИЯ =====
         if (state == EmployerState.COMPANY_INFO_MENU) {
-            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
+            if (isCancelText(text) || text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return showProfile(chatId, profileOpt, lang);
             }
-            if (text.equals("📝 Kompaniya tavsifi") || text.equals("📝 Описание компании")) {
+            if (text.equals("📝 Kompaniya tavsifi") || text.equals("📝 Описание компании") || text.equals("📝 Description")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_COMPANY_DESCRIPTION);
                 return createMessage(chatId,
-                        getText(lang, "📝 **Kompaniya haqida ma'lumot kiriting:**\n\n(Max 500 belgi)",
-                                "📝 **Введите описание компании:**\n\n(Макс 500 символов)"),
+                        getText(lang, "📝 **Tavsif kiriting (max 500):**",
+                                "📝 **Описание (макс 500):**",
+                                "📝 **Description (max 500):**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("📍 Manzil") || text.equals("📍 Адрес")) {
+            if (text.equals("📍 Manzil") || text.equals("📍 Адрес") || text.equals("📍 Address")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_COMPANY_ADDRESS);
                 return createMessage(chatId,
-                        getText(lang, "📍 **Kompaniya manzilini kiriting:**",
-                                "📍 **Введите адрес компании:**"),
+                        getText(lang, "📍 **Manzilni kiriting:**",
+                                "📍 **Введите адрес:**",
+                                "📍 **Enter address:**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("🌐 Veb-sayt") || text.equals("🌐 Веб-сайт")) {
+            if (text.equals("🌐 Veb-sayt") || text.equals("🌐 Веб-сайт") || text.equals("🌐 Website")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_COMPANY_WEBSITE);
                 return createMessage(chatId,
-                        getText(lang, "🌐 **Kompaniya veb-sayti yoki Telegram kanali:**\n\n(Masalan: https://t.me/kanal)",
-                                "🌐 **Веб-сайт или Telegram-канал компании:**\n\n(Например: https://t.me/kanal)"),
+                        getText(lang, "🌐 **Veb-sayt yoki Telegram kanali:**",
+                                "🌐 **Веб-сайт или Telegram-канал:**",
+                                "🌐 **Website or Telegram channel:**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("👥 Xodimlar soni") || text.equals("👥 Количество сотрудников")) {
+            if (text.equals("👥 Xodimlar soni") || text.equals("👥 Количество сотрудников") || text.equals("👥 Employees")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_COMPANY_SIZE);
                 return createMessage(chatId,
-                        getText(lang, "👥 **Xodimlar soni:**\n\n(Masalan: 1-10, 11-50, 51-200, 200+)",
-                                "👥 **Количество сотрудников:**\n\n(Например: 1-10, 11-50, 51-200, 200+)"),
+                        getText(lang, "👥 **Xodimlar soni:**",
+                                "👥 **Количество сотрудников:**",
+                                "👥 **Employees count:**"),
                         getCompanySizeKeyboard(lang));
             }
-            if (text.equals("🖼 Logotip") || text.equals("🖼 Логотип")) {
+            if (text.equals("🖼 Logotip") || text.equals("🖼 Логотип") || text.equals("🖼 Logo")) {
                 states.put(chatId, EmployerState.WAITING_FOR_COMPANY_LOGO);
                 return createMessage(chatId,
-                        getText(lang, "🖼 **Kompaniya logotipini yuboring (rasm):**",
-                                "🖼 **Отправьте логотип компании (изображение):**"),
+                        getText(lang, "🖼 **Logotip yuboring:**",
+                                "🖼 **Отправьте логотип:**",
+                                "🖼 **Send logo:**"),
                         getCancelKeyboard(lang));
             }
             return showCompanyInfo(chatId, profileOpt, lang);
         }
 
-        // ===== KOMPANIYA TAVSIFI =====
+        // ===== КОМПАНИЯ ТАВСИФ =====
         if (state == EmployerState.WAITING_FOR_EDIT_COMPANY_DESCRIPTION) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
@@ -363,24 +355,19 @@ public class EmployerHandler {
             }
             if (text.isBlank() || text.length() > 500) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Matn 1-500 belgi orasida bo'lishi kerak:",
-                                "⚠️ Текст должен быть от 1 до 500 символов:"),
+                        getText(lang, "⚠️ 1-500 belgi:", "⚠️ 1-500:", "⚠️ 1-500:"),
                         getCancelKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setCompanyDescription(text);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.COMPANY_INFO_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Kompaniya tavsifi saqlandi!", "✅ Описание компании сохранено!"),
+                    getText(lang, "✅ Saqlandi!", "✅ Сохранено!", "✅ Saved!"),
                     getCompanyInfoKeyboard(lang));
         }
 
-        // ===== KOMPANIYA MANZILI =====
+        // ===== КОМПАНИЯ АДРЕС =====
         if (state == EmployerState.WAITING_FOR_EDIT_COMPANY_ADDRESS) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
@@ -388,23 +375,19 @@ public class EmployerHandler {
             }
             if (text.isBlank() || text.length() > 200) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Manzil 1-200 belgi orasida:", "⚠️ Адрес от 1 до 200 символов:"),
+                        getText(lang, "⚠️ 1-200:", "⚠️ 1-200:", "⚠️ 1-200:"),
                         getCancelKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setCompanyAddress(text);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.COMPANY_INFO_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Manzil saqlandi!", "✅ Адрес сохранён!"),
+                    getText(lang, "✅ Saqlandi!", "✅ Сохранено!", "✅ Saved!"),
                     getCompanyInfoKeyboard(lang));
         }
 
-        // ===== KOMPANIYA VEB-SAYTI =====
+        // ===== КОМПАНИЯ ВЕБ =====
         if (state == EmployerState.WAITING_FOR_EDIT_COMPANY_WEBSITE) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
@@ -412,23 +395,19 @@ public class EmployerHandler {
             }
             if (text.isBlank() || text.length() > 200) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Havola 1-200 belgi orasida:", "⚠️ Ссылка от 1 до 200 символов:"),
+                        getText(lang, "⚠️ 1-200:", "⚠️ 1-200:", "⚠️ 1-200:"),
                         getCancelKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setCompanyWebsite(text);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.COMPANY_INFO_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Veb-sayt saqlandi!", "✅ Веб-сайт сохранён!"),
+                    getText(lang, "✅ Saqlandi!", "✅ Сохранено!", "✅ Saved!"),
                     getCompanyInfoKeyboard(lang));
         }
 
-        // ===== KOMPANIYA HAJMI =====
+        // ===== КОМПАНИЯ РАЗМЕР =====
         if (state == EmployerState.WAITING_FOR_EDIT_COMPANY_SIZE) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.COMPANY_INFO_MENU);
@@ -436,48 +415,44 @@ public class EmployerHandler {
             }
             if (text.isBlank() || text.length() > 50) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Iltimos, tugmalardan birini tanlang:", "⚠️ Выберите одну из кнопок:"),
+                        getText(lang, "⚠️ Tugma tanlang:", "⚠️ Кнопку:", "⚠️ Button:"),
                         getCompanySizeKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setCompanySize(text);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.COMPANY_INFO_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Xodimlar soni saqlandi!", "✅ Количество сотрудников сохранено!"),
+                    getText(lang, "✅ Saqlandi!", "✅ Сохранено!", "✅ Saved!"),
                     getCompanyInfoKeyboard(lang));
         }
 
-        // ===== BLOKLANGAN NOMZODLAR MENYUSI =====
+        // ===== БЛОКИРОВКА МЕНЮ =====
         if (state == EmployerState.BLOCKED_CANDIDATES_MENU) {
-            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || isCancelText(text)) {
+            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back") || isCancelText(text)) {
                 states.put(chatId, EmployerState.SETTINGS_MENU);
                 return createMessage(chatId,
-                        getText(lang, "⚙️ **Sozlamalar bo'limi:**", "⚙️ **Раздел настроек:**"),
+                        getText(lang, "⚙️ **Sozlamalar:**", "⚙️ **Настройки:**", "⚙️ **Settings:**"),
                         getSettingsKeyboard(lang));
             }
-            if (text.equals("➕ Nomzodni bloklash") || text.equals("➕ Заблокировать кандидата")) {
+            if (text.equals("➕ Nomzodni bloklash") || text.equals("➕ Заблокировать") || text.equals("➕ Block")) {
                 states.put(chatId, EmployerState.WAITING_FOR_BLOCK_CANDIDATE_ID);
                 return createMessage(chatId,
-                        getText(lang, "🚫 **Bloklash uchun nomzodning Telegram ID raqamini kiriting:**\n\n(Masalan: 123456789)",
-                                "🚫 **Введите Telegram ID кандидата для блокировки:**\n\n(Например: 123456789)"),
+                        getText(lang, "🚫 **Telegram ID kiriting:**",
+                                "🚫 **Введите Telegram ID:**",
+                                "🚫 **Enter Telegram ID:**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("✅ Blokdan chiqarish") || text.equals("✅ Разблокировать")) {
+            if (text.equals("✅ Blokdan chiqarish") || text.equals("✅ Разблокировать") || text.equals("✅ Unblock")) {
                 states.put(chatId, EmployerState.WAITING_FOR_BLOCK_CANDIDATE_ID);
                 return createMessage(chatId,
-                        getText(lang, "✅ **Blokdan chiqarish uchun nomzodning Telegram ID raqamini kiriting:**",
-                                "✅ **Введите Telegram ID кандидата для разблокировки:**"),
+                        getText(lang, "✅ **ID kiriting:**", "✅ **Введите ID:**", "✅ **Enter ID:**"),
                         getCancelKeyboard(lang));
             }
             return showBlockedCandidates(chatId, profileOpt, lang);
         }
 
-        // ===== NOMZODNI BLOKLASH =====
+        // ===== БЛОК ID =====
         if (state == EmployerState.WAITING_FOR_BLOCK_CANDIDATE_ID) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.BLOCKED_CANDIDATES_MENU);
@@ -485,30 +460,22 @@ public class EmployerHandler {
             }
             if (text == null || !text.matches("^\\d+$")) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Faqat raqam kiriting:", "⚠️ Введите только цифры:"),
+                        getText(lang, "⚠️ Faqat raqam:", "⚠️ Только цифры:", "⚠️ Digits:"),
                         getCancelKeyboard(lang));
             }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
-            }
-
             Long candidateId = Long.parseLong(text);
             if (candidateId.equals(chatId)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ O'zingizni bloklay olmaysiz!", "⚠️ Вы не можете заблокировать себя!"),
+                        getText(lang, "⚠️ O'zingizni bloklay olmaysiz!",
+                                "⚠️ Себя нельзя!",
+                                "⚠️ Cannot block yourself!"),
                         getCancelKeyboard(lang));
             }
-
             EmployerEntity entity = profileOpt.get();
             String blocked = entity.getBlockedCandidateIds();
-
-            List<String> list;
-            if (blocked == null || blocked.isBlank()) {
-                list = new ArrayList<>();
-            } else {
-                list = new ArrayList<>(List.of(blocked.split(",")));
-            }
+            List<String> list = (blocked == null || blocked.isBlank())
+                    ? new ArrayList<>()
+                    : new ArrayList<>(List.of(blocked.split(",")));
 
             if (list.contains(String.valueOf(candidateId))) {
                 list.remove(String.valueOf(candidateId));
@@ -516,8 +483,9 @@ public class EmployerHandler {
                 employerRepository.save(entity);
                 states.put(chatId, EmployerState.BLOCKED_CANDIDATES_MENU);
                 return createMessage(chatId,
-                        getText(lang, "✅ Nomzod blokdan chiqarildi! (ID: " + candidateId + ")",
-                                "✅ Кандидат разблокирован! (ID: " + candidateId + ")"),
+                        getText(lang, "✅ Chiqarildi! ID: " + candidateId,
+                                "✅ Разблокирован! ID: " + candidateId,
+                                "✅ Unblocked! ID: " + candidateId),
                         getBlockedCandidatesKeyboard(lang));
             } else {
                 list.add(String.valueOf(candidateId));
@@ -525,385 +493,286 @@ public class EmployerHandler {
                 employerRepository.save(entity);
                 states.put(chatId, EmployerState.BLOCKED_CANDIDATES_MENU);
                 return createMessage(chatId,
-                        getText(lang, "✅ Nomzod bloklandi! (ID: " + candidateId + ")",
-                                "✅ Кандидат заблокирован! (ID: " + candidateId + ")"),
+                        getText(lang, "✅ Bloklandi! ID: " + candidateId,
+                                "✅ Заблокирован! ID: " + candidateId,
+                                "✅ Blocked! ID: " + candidateId),
                         getBlockedCandidatesKeyboard(lang));
             }
         }
 
-        // ===== PROFILNI TAHRIRLASH MENYUSI =====
+        // ===== РЕДАКТ ПРОФИЛЯ =====
         if (state == EmployerState.EDIT_PROFILE_MENU) {
-            if (text.equals("👤 Ismni tahrirlash") || text.equals("👤 Изменить имя")) {
+            if (text.equals("👤 Ismni tahrirlash") || text.equals("👤 Изменить имя") || text.equals("👤 Change name")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_NAME);
                 return createMessage(chatId,
-                        getText(lang, "👤 **Yangi ism va familiyani kiriting:**", "👤 **Введите новое имя и фамилию:**"),
+                        getText(lang, "👤 **Yangi ism-familiya:**",
+                                "👤 **Новое имя:**", "👤 **New name:**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("🎂 Yoshni tahrirlash") || text.equals("🎂 Изменить возраст")) {
+            if (text.equals("🎂 Yoshni tahrirlash") || text.equals("🎂 Изменить возраст") || text.equals("🎂 Change age")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_AGE);
                 return createMessage(chatId,
-                        getText(lang, "🎂 **Yangi yoshni kiriting (18+):**", "🎂 **Введите новый возраст (18+):**"),
+                        getText(lang, "🎂 **Yosh (18+):**",
+                                "🎂 **Возраст (18+):**", "🎂 **Age (18+):**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("🏢 Kompaniya nomini tahrirlash") || text.equals("🏢 Изменить название компании")) {
+            if (text.equals("🏢 Kompaniya nomini tahrirlash") || text.equals("🏢 Изменить название компании") || text.equals("🏢 Change company")) {
                 states.put(chatId, EmployerState.WAITING_FOR_EDIT_COMPANY);
                 return createMessage(chatId,
-                        getText(lang,
-                                "🏢 **Kompaniya nomini kiriting:**\n\n(Agar kompaniya yo'q bo'lsa, \"Yo'q\" deb yozing)",
-                                "🏢 **Введите название компании:**\n\n(Если компании нет, напишите \"Нет\")"),
+                        getText(lang, "🏢 **Kompaniya nomi:**",
+                                "🏢 **Название компании:**", "🏢 **Company name:**"),
                         getCancelKeyboard(lang));
             }
-            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("❌ Bekor qilish") || text.equals("❌ Отмена")) {
+            if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")
+                    || text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") || text.equals("❌ Cancel")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return showProfile(chatId, profileOpt, lang);
             }
             return createMessage(chatId,
-                    getText(lang, "✏️ **Profilni tahrirlash:**", "✏️ **Редактировать профиль:**"),
+                    getText(lang, "✏️ **Tahrirlash:**", "✏️ **Редактировать:**", "✏️ **Edit:**"),
                     getEditProfileKeyboard(lang));
         }
 
-        // ===== ISMNI TAHRIRLASH =====
+        // ===== ИМЯ =====
         if (state == EmployerState.WAITING_FOR_EDIT_NAME) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
                 return createMessage(chatId,
-                        getText(lang, "❌ Tahrirlash bekor qilindi.", "❌ Редактирование отменено."),
+                        getText(lang, "❌ Bekor.", "❌ Отменено.", "❌ Cancelled."),
                         getEditProfileKeyboard(lang));
             }
             if (text.isBlank() || text.length() < 3) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Ism kamida 3 ta belgidan iborat bo'lishi kerak. Qaytadan kiriting:",
-                                "⚠️ Имя должно содержать минимум 3 символа. Введите снова:"),
+                        getText(lang, "⚠️ Min 3 belgi:", "⚠️ Мин 3:", "⚠️ Min 3:"),
                         getCancelKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId,
-                        getText(lang, "❌ Profil topilmadi. Qaytadan ro'yxatdan o'ting.",
-                                "❌ Профиль не найден. Зарегистрируйтесь снова."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setFullName(text);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Ism muvaffaqiyatli yangilandi!", "✅ Имя успешно обновлено!"),
+                    getText(lang, "✅ Yangilandi!", "✅ Обновлено!", "✅ Updated!"),
                     getEditProfileKeyboard(lang));
         }
 
-        // ===== YOSHNI TAHRIRLASH =====
+        // ===== ВОЗРАСТ =====
         if (state == EmployerState.WAITING_FOR_EDIT_AGE) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
                 return createMessage(chatId,
-                        getText(lang, "❌ Tahrirlash bekor qilindi.", "❌ Редактирование отменено."),
+                        getText(lang, "❌ Bekor.", "❌ Отменено.", "❌ Cancelled."),
                         getEditProfileKeyboard(lang));
             }
             if (!isValidAge(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Yosh 18 dan katta va 99 dan kichik bo'lishi kerak. Qaytadan kiriting:",
-                                "⚠️ Возраст должен быть от 18 до 99 лет. Введите снова:"),
+                        getText(lang, "⚠️ 18-99:", "⚠️ 18-99:", "⚠️ 18-99:"),
                         getCancelKeyboard(lang));
-            }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId,
-                        getText(lang, "❌ Profil topilmadi. Qaytadan ro'yxatdan o'ting.",
-                                "❌ Профиль не найден. Зарегистрируйтесь снова."));
             }
             EmployerEntity entity = profileOpt.get();
             entity.setAge(Integer.parseInt(text));
             employerRepository.save(entity);
             states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Yosh muvaffaqiyatli yangilandi!", "✅ Возраст успешно обновлён!"),
+                    getText(lang, "✅ Yangilandi!", "✅ Обновлено!", "✅ Updated!"),
                     getEditProfileKeyboard(lang));
         }
 
-        // ===== KOMPANIYA NOMINI TAHRIRLASH =====
+        // ===== КОМПАНИЯ ИМЯ =====
         if (state == EmployerState.WAITING_FOR_EDIT_COMPANY) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
                 return createMessage(chatId,
-                        getText(lang, "❌ Tahrirlash bekor qilindi.", "❌ Редактирование отменено."),
+                        getText(lang, "❌ Bekor.", "❌ Отменено.", "❌ Cancelled."),
                         getEditProfileKeyboard(lang));
             }
             if (text == null || text.isBlank()) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Iltimos, kompaniya nomini kiriting yoki \"Yo'q\" deb yozing:",
-                                "⚠️ Введите название компании или напишите \"Нет\":"),
+                        getText(lang, "⚠️ Kiriting yoki \"Yo'q\":",
+                                "⚠️ Введите или \"Нет\":", "⚠️ Enter or \"No\":"),
                         getCancelKeyboard(lang));
             }
-            if (profileOpt.isEmpty()) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId,
-                        getText(lang, "❌ Profil topilmadi. Qaytadan ro'yxatdan o'ting.",
-                                "❌ Профиль не найден. Зарегистрируйтесь снова."));
-            }
-
             String companyName = isNoCompanyText(text) ? null : text;
             EmployerEntity entity = profileOpt.get();
             entity.setCompanyName(companyName);
             employerRepository.save(entity);
             states.put(chatId, EmployerState.EDIT_PROFILE_MENU);
             return createMessage(chatId,
-                    getText(lang, "✅ Kompaniya nomi yangilandi!", "✅ Название компании обновлено!"),
+                    getText(lang, "✅ Yangilandi!", "✅ Обновлено!", "✅ Updated!"),
                     getEditProfileKeyboard(lang));
         }
 
-        // ===== SOZLAMALAR =====
+        // ===== НАСТРОЙКИ =====
         if (state == EmployerState.SETTINGS_MENU) {
-            if (text.equals("🌐 Til") || text.equals("🌐 Язык")) {
+            if (text.equals("🌐 Til") || text.equals("🌐 Язык") || text.equals("🌐 Language")) {
                 states.put(chatId, EmployerState.WAITING_FOR_LANGUAGE);
-                return createMessage(chatId, "🌐 **Tilni tanlang / Выберите язык:**", getLanguageKeyboard());
+                return createInlineLanguageMessage(chatId,
+                        "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
             }
-            if (text.equals("🚫 Bloklangan nomzodlar") || text.equals("🚫 Заблокированные кандидаты")) {
+            if (text.equals("🚫 Bloklangan nomzodlar") || text.equals("🚫 Заблокированные") || text.equals("🚫 Blocked")) {
                 states.put(chatId, EmployerState.BLOCKED_CANDIDATES_MENU);
                 return showBlockedCandidates(chatId, profileOpt, lang);
             }
             return createMessage(chatId,
-                    getText(lang, "⚙️ **Sozlamalar bo'limi:**", "⚙️ **Раздел настроек:**"),
+                    getText(lang, "⚙️ **Sozlamalar:**", "⚙️ **Настройки:**", "⚙️ **Settings:**"),
                     getSettingsKeyboard(lang));
         }
 
+        // ===== ЖДЁМ ВЫБОР ЯЗЫКА (через inline callback) =====
         if (state == EmployerState.WAITING_FOR_LANGUAGE) {
-            if (text.equals("🇺🇿 O'zbek tili")) {
-                saveLanguage(chatId, profileOpt, "uz");
-                states.put(chatId, EmployerState.MAIN_MENU);
-                return createMessage(chatId, "✅ Til muvaffaqiyatli O'zbek tiliga o'zgartirildi!", getMainMenuKeyboard("uz"));
-            }
-            if (text.equals("🇷🇺 Русский язык")) {
-                saveLanguage(chatId, profileOpt, "ru");
-                states.put(chatId, EmployerState.MAIN_MENU);
-                return createMessage(chatId, "✅ Язык успешно изменен на Русский!", getMainMenuKeyboard("ru"));
-            }
-            states.put(chatId, EmployerState.SETTINGS_MENU);
-            return createMessage(chatId, getText(lang, "⚙️ Sozlamalar", "⚙️ Настройки"), getSettingsKeyboard(lang));
+            return createInlineLanguageMessage(chatId,
+                    "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
         }
 
-        // ===== ARIZALAR =====
-        if (state == EmployerState.VIEWING_APPLICATIONS) {
-            return showApplications(chatId, lang);
-        }
+        // ===== ЗАЯВКИ =====
+        if (state == EmployerState.VIEWING_APPLICATIONS) return showApplications(chatId, lang);
+        if (state == EmployerState.VIEWING_STATISTICS) return showDashboard(chatId, lang);
 
-        // ===== STATISTIKA (Dashboard bilan bir xil) =====
-        if (state == EmployerState.VIEWING_STATISTICS) {
-            return showDashboard(chatId, lang);
-        }
-
-        // ===== VAKANSIYANI TAHRIRLASH =====
+        // ===== РЕДАКТ ВАКАНСИИ =====
         if (state == EmployerState.WAITING_FOR_EDIT_VACANCY_TITLE) {
             return handleEditVacancyField(chatId, text, "title", lang,
-                    "Sarlavha 3-100 ta belgidan iborat bo'lishi kerak!",
-                    "Заголовок должен содержать 3-100 символов!");
+                    "Sarlavha 3-100!", "Заголовок 3-100!", "Title 3-100!");
         }
         if (state == EmployerState.WAITING_FOR_EDIT_VACANCY_SALARY) {
             return handleEditVacancyField(chatId, text, "salary", lang,
-                    "Maosh bo'sh bo'lmasligi kerak!",
-                    "Зарплата не должна быть пустой!");
+                    "Maosh bo'sh!", "Зарплата пустая!", "Salary empty!");
         }
         if (state == EmployerState.WAITING_FOR_EDIT_VACANCY_REQUIREMENTS) {
             return handleEditVacancyField(chatId, text, "requirements", lang,
-                    "Talablar bo'sh bo'lmasligi kerak!",
-                    "Требования не должны быть пустыми!");
+                    "Talablar bo'sh!", "Требования пустые!", "Requirements empty!");
         }
         if (state == EmployerState.WAITING_FOR_EDIT_VACANCY_WORK_HOURS) {
             return handleEditVacancyField(chatId, text, "workHours", lang,
-                    "Ish vaqti bo'sh bo'lmasligi kerak!",
-                    "Рабочие часы не должны быть пустыми!");
+                    "Ish vaqti bo'sh!", "Часы пустые!", "Hours empty!");
         }
 
-        // ===== VAKANSIYA YARATISH =====
+        // ===== СОЗДАНИЕ ВАКАНСИИ =====
         if (state == EmployerState.WAITING_FOR_TITLE) {
             if (!isValidTitle(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Sarlavha noto'g'ri!** 3-100 ta belgi bo'lishi kerak:",
-                                "⚠️ **Неверный заголовок!** Должно быть 3-100 символов:"),
+                        getText(lang, "⚠️ Sarlavha 3-100:", "⚠️ Заголовок 3-100:", "⚠️ Title 3-100:"),
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("title", text);
             states.put(chatId, EmployerState.WAITING_FOR_CATEGORY);
             return createMessage(chatId,
-                    getText(lang, "📁 **Kategoriyani tanlang:**", "📁 **Выберите категорию:**"),
+                    getText(lang, "📁 **Kategoriya:**", "📁 **Категория:**", "📁 **Category:**"),
                     getCategoryKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_CATEGORY) {
             if (!isValidCategory(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Kategoriya nomini tugma orqali tanlang:**", "⚠️ **Выберите категорию с помощью кнопок:**"),
+                        getText(lang, "⚠️ Tugma:", "⚠️ Кнопка:", "⚠️ Button:"),
                         getCategoryKeyboard(lang));
             }
             draftData.get(chatId).put("category", text);
             states.put(chatId, EmployerState.WAITING_FOR_JOB_TYPE);
             return createMessage(chatId,
-                    getText(lang, "⏰ **Ish turini tanlang:**", "⏰ **Выберите тип работы:**"),
+                    getText(lang, "⏰ **Ish turi:**", "⏰ **Тип работы:**", "⏰ **Job type:**"),
                     getTypeKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_CUSTOM_CATEGORY) {
             if (!isValidTitle(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Kategoriya juda qisqa:**", "⚠️ **Категория слишком короткая:**"),
+                        getText(lang, "⚠️ Kategoriya qisqa:", "⚠️ Категория коротка:", "⚠️ Category short:"),
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("category", text);
             states.put(chatId, EmployerState.WAITING_FOR_JOB_TYPE);
             return createMessage(chatId,
-                    getText(lang, "⏰ **Ish turini tanlang:**", "⏰ **Выберите тип работы:**"),
+                    getText(lang, "⏰ **Ish turi:**", "⏰ **Тип работы:**", "⏰ **Job type:**"),
                     getTypeKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_JOB_TYPE) {
             if (!isValidJobType(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Tugmalardan birini tanlang:**", "⚠️ **Выберите одну из кнопок:**"),
+                        getText(lang, "⚠️ Tugma:", "⚠️ Кнопка:", "⚠️ Button:"),
                         getTypeKeyboard(lang));
             }
             draftData.get(chatId).put("type", text);
             states.put(chatId, EmployerState.WAITING_FOR_WORK_HOURS);
             return createMessage(chatId,
-                    getText(lang, "⌛️ **Ish soatlarini tanlang:**", "⌛️ **Выберите часы работы:**"),
+                    getText(lang, "⌛️ **Ish soatlari:**", "⌛️ **Часы:**", "⌛️ **Hours:**"),
                     getWorkHoursKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_WORK_HOURS) {
             if (!isValidWorkHours(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Ish soati noto'g'ri!**", "⚠️ **Неверные часы!**"),
+                        getText(lang, "⚠️ Noto'g'ri!", "⚠️ Неверно!", "⚠️ Invalid!"),
                         getWorkHoursKeyboard(lang));
             }
             draftData.get(chatId).put("workHours", text);
             states.put(chatId, EmployerState.WAITING_FOR_WORKER_COUNT);
             return createMessage(chatId,
-                    getText(lang, "👥 **Nechta xodim kerak?**", "👥 **Сколько сотрудников нужно?**"),
+                    getText(lang, "👥 **Nechta xodim?**", "👥 **Сколько сотрудников?**", "👥 **How many workers?**"),
                     getCancelKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_WORKER_COUNT) {
             if (!isValidWorkerCount(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Faqat musbat raqam kiriting:**", "⚠️ **Введите только положительное число:**"),
+                        getText(lang, "⚠️ Musbat raqam:", "⚠️ Положительное число:", "⚠️ Positive number:"),
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("workerCount", text);
             states.put(chatId, EmployerState.WAITING_FOR_SALARY);
             return createMessage(chatId,
-                    getText(lang, "💰 **Maoshni kiriting:**", "💰 **Введите зарплату:**"),
+                    getText(lang, "💰 **Maosh:**", "💰 **Зарплата:**", "💰 **Salary:**"),
                     getSalaryQuickKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_SALARY) {
             if (!isValidSalary(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Maosh noto'g'ri:**", "⚠️ **Неверная зарплата:**"),
+                        getText(lang, "⚠️ Noto'g'ri:", "⚠️ Неверно:", "⚠️ Invalid:"),
                         getSalaryQuickKeyboard(lang));
             }
             draftData.get(chatId).put("salary", text);
             states.put(chatId, EmployerState.WAITING_FOR_REQUIREMENTS);
             return createMessage(chatId,
-                    getText(lang, "📌 **Talablarni kiriting:**", "📌 **Введите требования:**"),
+                    getText(lang, "📌 **Talablar:**", "📌 **Требования:**", "📌 **Requirements:**"),
                     getSkipKeyboard(lang));
         }
 
         if (state == EmployerState.WAITING_FOR_REQUIREMENTS) {
-            String reqText = isSkip(text) ? (lang.equals("ru") ? "Не указано" : "Ko'rsatilmadi") : text;
+            String reqText = isSkip(text)
+                    ? getText(lang, "Ko'rsatilmadi", "Не указано", "Not specified")
+                    : text;
             draftData.get(chatId).put("requirements", reqText);
-            states.put(chatId, EmployerState.WAITING_FOR_PHONE);
-            return createMessage(chatId,
-                    getText(lang, "📞 **Telefon raqamingizni yuboring:**", "📞 **Отправьте номер телефона:**"),
-                    getContactKeyboard(lang));
+
+            String phoneFromProfile = profileOpt.map(EmployerEntity::getPhoneNumber).orElse(null);
+            if (phoneFromProfile == null || phoneFromProfile.isBlank()) {
+                states.put(chatId, EmployerState.WAITING_FOR_PHONE);
+                return createMessage(chatId,
+                        getText(lang, "📞 **Telefon:**", "📞 **Телефон:**", "📞 **Phone:**"),
+                        getContactKeyboard(lang));
+            }
+            return createVacancyAndNotify(chatId, phoneFromProfile, profileOpt, lang);
         }
 
         if (state == EmployerState.WAITING_FOR_PHONE) {
             String phoneText = message.hasContact() ? message.getContact().getPhoneNumber() : text;
-
             if (!isValidPhone(phoneText)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ **Telefon raqam noto'g'ri!** Format: `+998901234567`",
-                                "⚠️ **Неверный номер!** Формат: `+998901234567`"),
+                        getText(lang, "⚠️ Format: +998901234567",
+                                "⚠️ Формат: +998901234567", "⚠️ Format: +998901234567"),
                         getContactKeyboard(lang));
             }
-
-            Map<String, String> data = draftData.getOrDefault(chatId, Map.of());
-
-            JobVacancy vacancy = new JobVacancy();
-            vacancy.setEmployerChatId(chatId);
-            vacancy.setTitle(data.getOrDefault("title", "Ko'rsatilmadi"));
-            vacancy.setCategory(data.getOrDefault("category", "Boshqa"));
-            vacancy.setType(data.getOrDefault("type", "To'liq bandlik"));
-            vacancy.setSalary(data.getOrDefault("salary", "Kelishiladi"));
-            vacancy.setWorkHours(data.getOrDefault("workHours", "8 soat"));
-
-            String countStr = data.getOrDefault("workerCount", "1");
-            vacancy.setWorkerCount(countStr.matches("\\d+") ? Integer.parseInt(countStr) : 1);
-
-            vacancy.setRequirements(data.getOrDefault("requirements", "Ko'rsatilmadi"));
-            vacancy.setPhoneNumber(phoneText);
-            vacancy.setIsActive(true);
-            vacancy.setVacancyStatus(null);
-            vacancy.setCompanyName(profileOpt.map(EmployerEntity::getCompanyName).orElse(null));
-
-            jobVacancyRepository.save(vacancy);
-
-            try {
-                String postedCategory = vacancy.getCategory();
-                List<Subscription> subscribers = subscriptionRepository.findByCategory(postedCategory);
-
-                for (Subscription sub : subscribers) {
-                    Long seekerUserId = sub.getUserId();
-
-                    String notificationText = String.format(
-                            "🆕 **Yangi ish qo'shildi!**\n\n" +
-                                    "📌 **Vakansiya:** %s\n" +
-                                    "📂 **Kategoriya:** %s\n" +
-                                    "💰 **Maosh:** %s",
-                            vacancy.getTitle(),
-                            vacancy.getCategory() != null ? vacancy.getCategory() : "Ko'rsatilmagan",
-                            vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishiladi"
-                    );
-
-                    InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-                    List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-                    List<InlineKeyboardButton> row = new ArrayList<>();
-                    InlineKeyboardButton applyBtn = new InlineKeyboardButton("📩 Ariza topshirish");
-                    applyBtn.setCallbackData("apply_" + vacancy.getId());
-                    row.add(applyBtn);
-                    rows.add(row);
-                    markup.setKeyboard(rows);
-
-                    SendMessage notificationMsg = new SendMessage(seekerUserId.toString(), notificationText);
-                    notificationMsg.setParseMode("Markdown");
-                    notificationMsg.setReplyMarkup(markup);
-
-                    try {
-                        telegram.execute(notificationMsg);
-                    } catch (Exception e) {
-                        log.error("❌ Xabar yuborishda xatolik: userId={}", seekerUserId);
-                    }
-                }
-            } catch (Exception e) {
-                log.error("❌ Obunachilarga xabar yuborishda umumiy xatolik", e);
-            }
-
-            states.put(chatId, EmployerState.MAIN_MENU);
-            draftData.get(chatId).clear();
-
-            String successMsg = lang.equals("ru") ?
-                    String.format("🎉 **Вакансия опубликована!**\n\n📌 **Название:** %s\n📁 **Категория:** %s",
-                            vacancy.getTitle(), vacancy.getCategory()) :
-                    String.format("🎉 **E'loningiz chop etildi!**\n\n📌 **Nomi:** %s\n📁 **Kategoriya:** %s",
-                            vacancy.getTitle(), vacancy.getCategory());
-
-            return createMessage(chatId, successMsg, getMainMenuKeyboard(lang));
+            return createVacancyAndNotify(chatId, normalizePhone(phoneText), profileOpt, lang);
         }
 
         return createMessage(chatId,
-                getText(lang, "📢 **Ish beruvchi menyusi:**", "📢 **Меню работодателя:**"),
+                getText(lang, "📢 **Ish beruvchi menyusi:**",
+                        "📢 **Меню работодателя:**",
+                        "📢 **Employer menu:**"),
                 getMainMenuKeyboard(lang));
     }
+
     // ============================================
-    // CALLBACK QUERY HANDLER
+    // CALLBACK HANDLER
     // ============================================
     public SendMessage handleCallback(CallbackQuery callbackQuery) {
         if (callbackQuery == null || callbackQuery.getMessage() == null) return null;
@@ -915,29 +784,60 @@ public class EmployerHandler {
 
         Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
         String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
-
         EmployerState state = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
 
-        // ===== NOMZODLAR BAZASI CALLBACKLARI =====
-        if (data != null && data.startsWith("cand_cat_")) {
-            String cat = data.replace("cand_cat_", "");
+        if (data == null) return null;
 
+        // ===== ВЫБОР ЯЗЫКА (INLINE callback) =====
+        if (data.startsWith("lang_")) {
+            String newLang = data.replace("lang_", "");
+
+            boolean isRegistration = profileOpt.isEmpty()
+                    || profileOpt.get().getFullName() == null
+                    || profileOpt.get().getFullName().isBlank();
+
+            EmployerEntity profile = profileOpt.orElseGet(() -> EmployerEntity.builder()
+                    .employerChatId(chatId)
+                    .createdAt(LocalDateTime.now())
+                    .build());
+            profile.setLanguage(newLang);
+            employerRepository.save(profile);
+
+            sendAnswerCallback(callbackQuery.getId(), null, false);
+
+            if (isRegistration) {
+                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
+                return createMessage(chatId,
+                        getText(newLang,
+                                "👤 **Ish beruvchi sifatida ro'yxatdan o'tish**\n\nIsm va familiyangizni kiriting:",
+                                "👤 **Регистрация работодателя**\n\nВведите имя и фамилию:",
+                                "👤 **Employer registration**\n\nEnter your first and last name:"),
+                        getCancelKeyboard(newLang));
+            } else {
+                states.put(chatId, EmployerState.MAIN_MENU);
+                return createMessage(chatId,
+                        getText(newLang, "✅ Til O'zbek!", "✅ Язык Русский!", "✅ Language English!"),
+                        getMainMenuKeyboard(newLang));
+            }
+        }
+
+        // ===== КАНДИДАТЫ =====
+        if (data.startsWith("cand_cat_")) {
+            String cat = data.replace("cand_cat_", "");
             if (cat.equals("BACK")) {
                 states.put(chatId, EmployerState.SEARCH_CANDIDATES);
                 try {
                     EditMessageText edit = new EditMessageText();
                     edit.setChatId(chatId.toString());
                     edit.setMessageId(messageId);
-                    edit.setText(lang.equals("ru") ? "🔍 **Поиск кандидатов:**\n\nВыберите категорию:" : "🔍 **Nomzod izlash:**\n\nKategoriyani tanlang:");
+                    SendMessage resp = showCandidateSearch(chatId, lang);
+                    edit.setText(resp.getText());
                     edit.setParseMode("Markdown");
-                    edit.setReplyMarkup((InlineKeyboardMarkup) showCandidateSearch(chatId, lang).getReplyMarkup());
+                    edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
                     telegram.execute(edit);
-                } catch (Exception e) {
-                    log.error("❌ Edit error", e);
-                }
+                } catch (Exception e) { log.error("Edit error", e); }
                 return null;
             }
-
             try {
                 EditMessageText edit = new EditMessageText();
                 edit.setChatId(chatId.toString());
@@ -945,15 +845,15 @@ public class EmployerHandler {
                 SendMessage resp = showCandidatesByCategory(chatId, cat, lang);
                 edit.setText(resp.getText());
                 edit.setParseMode("Markdown");
-                edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
+                if (resp.getReplyMarkup() instanceof InlineKeyboardMarkup) {
+                    edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
+                }
                 telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        if (data != null && data.startsWith("cand_view_")) {
+        if (data.startsWith("cand_view_")) {
             Long profileId = Long.parseLong(data.replace("cand_view_", ""));
             try {
                 EditMessageText edit = new EditMessageText();
@@ -962,30 +862,28 @@ public class EmployerHandler {
                 SendMessage resp = showCandidateProfile(chatId, profileId, lang);
                 edit.setText(resp.getText());
                 edit.setParseMode("Markdown");
-                edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
+                if (resp.getReplyMarkup() instanceof InlineKeyboardMarkup) {
+                    edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
+                }
                 telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        if (data != null && data.startsWith("cand_chat_")) {
+        if (data.startsWith("cand_chat_")) {
             Long partnerId = Long.parseLong(data.replace("cand_chat_", ""));
             states.put(chatId, EmployerState.WAITING_FOR_CHAT_MESSAGE);
             draftData.get(chatId).put("chat_partner_id", String.valueOf(partnerId));
-
             Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findByUserId(partnerId);
-            String partnerName = seekerOpt.map(JobSeekerProfile::getFullName).orElse("Foydalanuvchi");
-
+            String name = seekerOpt.map(JobSeekerProfile::getFullName).orElse("User");
             return createMessage(chatId,
-                    getText(lang, "✍️ **" + partnerName + "ga xabar yozing:**",
-                            "✍️ **Напишите сообщение для " + partnerName + ":**"),
+                    getText(lang, "✍️ **" + name + "ga yozing:**",
+                            "✍️ **Напишите " + name + ":**",
+                            "✍️ **Write to " + name + ":**"),
                     getChatKeyboard(lang));
         }
 
-        // ===== CHAT OCHISH =====
-        if (data != null && data.startsWith("chat_open_")) {
+        if (data.startsWith("chat_open_")) {
             Long partnerId = Long.parseLong(data.replace("chat_open_", ""));
             try {
                 EditMessageText edit = new EditMessageText();
@@ -994,99 +892,85 @@ public class EmployerHandler {
                 SendMessage resp = showChatMessages(chatId, partnerId, lang);
                 edit.setText(resp.getText());
                 edit.setParseMode("Markdown");
-                edit.setReplyMarkup((InlineKeyboardMarkup) resp.getReplyMarkup());
                 telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        // ===== KATEGORIYA (VAKANSIYA YARATISH) =====
-        if (state == EmployerState.WAITING_FOR_CATEGORY && data != null && data.startsWith("emp_cat_")) {
+        // ===== КАТЕГОРИЯ ВАКАНСИИ =====
+        if (state == EmployerState.WAITING_FOR_CATEGORY && data.startsWith("emp_cat_")) {
             String catValue = data.substring("emp_cat_".length());
-
             if (catValue.equals("OTHER")) {
                 states.put(chatId, EmployerState.WAITING_FOR_CUSTOM_CATEGORY);
                 return createMessage(chatId,
-                        getText(lang, "📝 **Kategoriya nomini kiriting:**", "📝 **Введите название категории:**"),
+                        getText(lang, "📝 **Kategoriya nomi:**",
+                                "📝 **Название категории:**", "📝 **Category name:**"),
                         getCancelKeyboard(lang));
             }
-
             if (catValue.equals("MENU")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return createMessage(chatId,
-                        getText(lang, "📢 **Ish beruvchi menyusi:**", "📢 **Меню работодателя:**"),
+                        getText(lang, "📢 **Menyu:**", "📢 **Меню:**", "📢 **Menu:**"),
                         getMainMenuKeyboard(lang));
             }
-
             draftData.get(chatId).put("category", catValue);
             states.put(chatId, EmployerState.WAITING_FOR_JOB_TYPE);
             return createMessage(chatId,
-                    getText(lang, "⏰ **Ish turini tanlang:**", "⏰ **Выберите тип работы:**"),
+                    getText(lang, "⏰ **Ish turi:**", "⏰ **Тип работы:**", "⏰ **Job type:**"),
                     getTypeKeyboard(lang));
         }
 
-        // ===== VAKANSIYANI ARXIVLASH =====
-        if (data != null && data.startsWith("vac_toggle_")) {
+        // ===== АРХИВ ВАКАНСИИ =====
+        if (data.startsWith("vac_toggle_")) {
             Long vacancyId = Long.parseLong(data.replace("vac_toggle_", ""));
             Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
             if (vacOpt.isEmpty()) {
                 sendAnswerCallback(callbackQuery.getId(),
-                        getText(lang, "❌ Vakansiya topilmadi!", "❌ Вакансия не найдена!"), true);
+                        getText(lang, "❌ Topilmadi!", "❌ Не найдено!", "❌ Not found!"), true);
                 return null;
             }
             JobVacancy vac = vacOpt.get();
             boolean newStatus = vac.getIsActive() == null || !vac.getIsActive();
             vac.setIsActive(newStatus);
-            if (!newStatus) {
-                vac.setVacancyStatus(null);
-            }
+            if (!newStatus) vac.setVacancyStatus(null);
             jobVacancyRepository.save(vac);
 
             sendAnswerCallback(callbackQuery.getId(),
                     newStatus
-                            ? getText(lang, "✅ Faollashtirildi!", "✅ Активирована!")
-                            : getText(lang, "🔴 Arxivlandi!", "🔴 Архивирована!"),
+                            ? getText(lang, "✅ Faollashtirildi!", "✅ Активирована!", "✅ Activated!")
+                            : getText(lang, "🔴 Arxivlandi!", "🔴 Архивирована!", "🔴 Archived!"),
                     false);
 
             try {
                 List<JobVacancy> allJobs = jobVacancyRepository.findAllByEmployerChatId(chatId);
-                int index = -1;
-                for (int i = 0; i < allJobs.size(); i++) {
-                    if (allJobs.get(i).getId().equals(vacancyId)) {
-                        index = i + 1;
-                        break;
-                    }
+                int index = 1;
+                for (JobVacancy j : allJobs) {
+                    if (j.getId().equals(vacancyId)) break;
+                    index++;
                 }
-                if (index > 0) {
-                    SendMessage updatedCard = buildVacancyCard(chatId, vac, index, lang);
-                    EditMessageText edit = new EditMessageText();
-                    edit.setChatId(chatId.toString());
-                    edit.setMessageId(messageId);
-                    edit.setText(updatedCard.getText());
-                    edit.setParseMode("Markdown");
-                    edit.setReplyMarkup((InlineKeyboardMarkup) updatedCard.getReplyMarkup());
-                    telegram.execute(edit);
-                }
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+                SendMessage updatedCard = buildVacancyCard(chatId, vac, index, lang);
+                EditMessageText edit = new EditMessageText();
+                edit.setChatId(chatId.toString());
+                edit.setMessageId(messageId);
+                edit.setText(updatedCard.getText());
+                edit.setParseMode("Markdown");
+                edit.setReplyMarkup((InlineKeyboardMarkup) updatedCard.getReplyMarkup());
+                telegram.execute(edit);
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        // ===== VAKANSIYANI "TO'LDIRILDI" QILISH =====
-        if (data != null && data.startsWith("vac_filled_")) {
+        // ===== TO'LDIRILDI =====
+        if (data.startsWith("vac_filled_")) {
             Long vacancyId = Long.parseLong(data.replace("vac_filled_", ""));
             Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
             if (vacOpt.isEmpty()) {
                 sendAnswerCallback(callbackQuery.getId(),
-                        getText(lang, "❌ Vakansiya topilmadi!", "❌ Вакансия не найдена!"), true);
+                        getText(lang, "❌ Topilmadi!", "❌ Не найдено!", "❌ Not found!"), true);
                 return null;
             }
             JobVacancy vac = vacOpt.get();
             boolean isFilled = "FILLED".equals(vac.getVacancyStatus());
-
             if (isFilled) {
                 vac.setVacancyStatus(null);
                 vac.setIsActive(true);
@@ -1098,56 +982,47 @@ public class EmployerHandler {
 
             sendAnswerCallback(callbackQuery.getId(),
                     isFilled
-                            ? getText(lang, "🟢 Faolga qaytarildi!", "🟢 Возвращено в активные!")
-                            : getText(lang, "✅ To'ldirildi deb belgilandi!", "✅ Отмечено как заполненное!"),
+                            ? getText(lang, "🟢 Faolga!", "🟢 Возвращено!", "🟢 Restored!")
+                            : getText(lang, "✅ To'ldirildi!", "✅ Заполнено!", "✅ Filled!"),
                     false);
 
             try {
                 List<JobVacancy> allJobs = jobVacancyRepository.findAllByEmployerChatId(chatId);
-                int index = -1;
-                for (int i = 0; i < allJobs.size(); i++) {
-                    if (allJobs.get(i).getId().equals(vacancyId)) {
-                        index = i + 1;
-                        break;
-                    }
+                int index = 1;
+                for (JobVacancy j : allJobs) {
+                    if (j.getId().equals(vacancyId)) break;
+                    index++;
                 }
-                if (index > 0) {
-                    SendMessage updatedCard = buildVacancyCard(chatId, vac, index, lang);
-                    EditMessageText edit = new EditMessageText();
-                    edit.setChatId(chatId.toString());
-                    edit.setMessageId(messageId);
-                    edit.setText(updatedCard.getText());
-                    edit.setParseMode("Markdown");
-                    edit.setReplyMarkup((InlineKeyboardMarkup) updatedCard.getReplyMarkup());
-                    telegram.execute(edit);
-                }
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+                SendMessage updatedCard = buildVacancyCard(chatId, vac, index, lang);
+                EditMessageText edit = new EditMessageText();
+                edit.setChatId(chatId.toString());
+                edit.setMessageId(messageId);
+                edit.setText(updatedCard.getText());
+                edit.setParseMode("Markdown");
+                edit.setReplyMarkup((InlineKeyboardMarkup) updatedCard.getReplyMarkup());
+                telegram.execute(edit);
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        // ===== VAKANSIYANI TAHRIRLASH =====
-        if (data != null && data.startsWith("vac_edit_") && !data.startsWith("vac_edit_field_")) {
+        // ===== РЕДАКТ ВАКАНСИИ =====
+        if (data.startsWith("vac_edit_") && !data.startsWith("vac_edit_field_")) {
             Long vacancyId = Long.parseLong(data.replace("vac_edit_", ""));
             draftData.get(chatId).put("edit_vacancy_id", String.valueOf(vacancyId));
             EditMessageText edit = new EditMessageText();
             edit.setChatId(chatId.toString());
             edit.setMessageId(messageId);
             edit.setText(getText(lang,
-                    "✏️ **Vakansiyani tahrirlash:**\n\nQaysi maydonni?",
-                    "✏️ **Редактировать вакансию:**\n\nКакое поле?"));
+                    "✏️ **Tahrirlash:**\n\nQaysi maydon?",
+                    "✏️ **Редактировать:**\n\nКакое поле?",
+                    "✏️ **Edit:**\n\nWhich field?"));
             edit.setParseMode("Markdown");
             edit.setReplyMarkup(buildEditVacancyKeyboard(vacancyId, lang));
-            try {
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            try { telegram.execute(edit); } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        if (data != null && data.startsWith("vac_edit_field_")) {
+        if (data.startsWith("vac_edit_field_")) {
             String[] parts = data.replace("vac_edit_field_", "").split("_");
             String field = parts[0];
             Long vacancyId = Long.parseLong(parts[1]);
@@ -1158,53 +1033,47 @@ public class EmployerHandler {
             switch (field) {
                 case "title" -> {
                     states.put(chatId, EmployerState.WAITING_FOR_EDIT_VACANCY_TITLE);
-                    promptText = getText(lang, "📝 **Yangi sarlavhani kiriting:**", "📝 **Введите новый заголовок:**");
+                    promptText = getText(lang, "📝 **Yangi sarlavha:**", "📝 **Новый заголовок:**", "📝 **New title:**");
                 }
                 case "salary" -> {
                     states.put(chatId, EmployerState.WAITING_FOR_EDIT_VACANCY_SALARY);
-                    promptText = getText(lang, "💰 **Yangi maoshni kiriting:**", "💰 **Введите новую зарплату:**");
+                    promptText = getText(lang, "💰 **Yangi maosh:**", "💰 **Новая зарплата:**", "💰 **New salary:**");
                 }
                 case "requirements" -> {
                     states.put(chatId, EmployerState.WAITING_FOR_EDIT_VACANCY_REQUIREMENTS);
-                    promptText = getText(lang, "📋 **Yangi talablarni kiriting:**", "📋 **Введите новые требования:**");
+                    promptText = getText(lang, "📋 **Yangi talablar:**", "📋 **Новые требования:**", "📋 **New requirements:**");
                 }
                 case "workHours" -> {
                     states.put(chatId, EmployerState.WAITING_FOR_EDIT_VACANCY_WORK_HOURS);
-                    promptText = getText(lang, "⏰ **Yangi ish vaqtini kiriting:**", "⏰ **Введите новые рабочие часы:**");
+                    promptText = getText(lang, "⏰ **Yangi ish vaqti:**", "⏰ **Новые часы:**", "⏰ **New hours:**");
                 }
-                default -> {
-                    return null;
-                }
+                default -> { return null; }
             }
             return createMessage(chatId, promptText, getCancelKeyboard(lang));
         }
 
-        // ===== VAKANSIYANI O'CHIRISH =====
-        if (data != null && data.startsWith("vac_delete_") && !data.startsWith("vac_delete_confirm_") && !data.startsWith("vac_delete_cancel")) {
+        // ===== УДАЛЕНИЕ =====
+        if (data.startsWith("vac_delete_")
+                && !data.startsWith("vac_delete_confirm_")
+                && !data.startsWith("vac_delete_cancel")) {
             Long vacancyId = Long.parseLong(data.replace("vac_delete_", ""));
-
             EditMessageText edit = new EditMessageText();
             edit.setChatId(chatId.toString());
             edit.setMessageId(messageId);
-            edit.setText(getText(lang,
-                    "🗑 **Vakansiyani o'chirishni tasdiqlaysizmi?**",
-                    "🗑 **Подтвердите удаление вакансии?**"));
+            edit.setText(getText(lang, "🗑 **O'chirishni tasdiqlaysizmi?**",
+                    "🗑 **Подтвердите удаление?**", "🗑 **Confirm deletion?**"));
             edit.setParseMode("Markdown");
             edit.setReplyMarkup(buildDeleteConfirmKeyboard(vacancyId, lang));
-            try {
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            try { telegram.execute(edit); } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        if (data != null && data.startsWith("vac_delete_confirm_")) {
+        if (data.startsWith("vac_delete_confirm_")) {
             Long vacancyId = Long.parseLong(data.replace("vac_delete_confirm_", ""));
-
             Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
             if (vacOpt.isEmpty()) {
-                sendAnswerCallback(callbackQuery.getId(), getText(lang, "❌ Topilmadi!", "❌ Не найдено!"), true);
+                sendAnswerCallback(callbackQuery.getId(),
+                        getText(lang, "❌ Topilmadi!", "❌ Не найдено!", "❌ Not found!"), true);
                 return null;
             }
             String deletedTitle = vacOpt.get().getTitle();
@@ -1213,16 +1082,10 @@ public class EmployerHandler {
             EditMessageText edit = new EditMessageText();
             edit.setChatId(chatId.toString());
             edit.setMessageId(messageId);
-            edit.setText(getText(lang,
-                    "🗑 **O'chirildi:** " + deletedTitle,
-                    "🗑 **Удалено:** " + deletedTitle));
+            edit.setText(getText(lang, "🗑 **O'chirildi:** " + deletedTitle,
+                    "🗑 **Удалено:** " + deletedTitle, "🗑 **Deleted:** " + deletedTitle));
             edit.setParseMode("Markdown");
-            edit.setReplyMarkup(null);
-            try {
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            try { telegram.execute(edit); } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
@@ -1230,32 +1093,31 @@ public class EmployerHandler {
             EditMessageText edit = new EditMessageText();
             edit.setChatId(chatId.toString());
             edit.setMessageId(messageId);
-            edit.setText(getText(lang, "❌ **Bekor qilindi.**", "❌ **Отменено.**"));
+            edit.setText(getText(lang, "❌ **Bekor qilindi.**", "❌ **Отменено.**", "❌ **Cancelled.**"));
             edit.setParseMode("Markdown");
-            try {
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
+            try { telegram.execute(edit); } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
-        // ===== ARIZA STATUSI =====
-        if (data != null && data.startsWith("emp_app_status_")) {
+        // ===== СТАТУС ЗАЯВКИ =====
+        if (data.startsWith("emp_app_status_")) {
             String[] parts = data.replace("emp_app_status_", "").split("_");
             String action = parts[0];
             Long appId = Long.parseLong(parts[1]);
 
             Optional<JobApplication> appOpt = jobApplicationRepository.findById(appId);
             if (appOpt.isEmpty()) {
-                sendAnswerCallback(callbackQuery.getId(), getText(lang, "❌ Ariza topilmadi!", "❌ Заявка не найдена!"), true);
+                sendAnswerCallback(callbackQuery.getId(),
+                        getText(lang, "❌ Ariza topilmadi!", "❌ Заявка не найдена!", "❌ Not found!"), true);
                 return null;
             }
 
             JobApplication app = appOpt.get();
-            boolean belongsToEmployer = jobVacancyRepository.findByIdAndEmployerChatId(app.getJobId(), chatId).isPresent();
+            boolean belongsToEmployer = jobVacancyRepository
+                    .findByIdAndEmployerChatId(app.getJobId(), chatId).isPresent();
             if (!belongsToEmployer) {
-                sendAnswerCallback(callbackQuery.getId(), getText(lang, "❌ Ruxsat yo'q!", "❌ Нет доступа!"), true);
+                sendAnswerCallback(callbackQuery.getId(),
+                        getText(lang, "❌ Ruxsat yo'q!", "❌ Нет доступа!", "❌ No access!"), true);
                 return null;
             }
 
@@ -1271,7 +1133,7 @@ public class EmployerHandler {
             jobApplicationRepository.save(app);
 
             sendAnswerCallback(callbackQuery.getId(),
-                    getText(lang, "✅ Yangilandi: " + newStatus.name(), "✅ Обновлено: " + newStatus.name()),
+                    getText(lang, "✅ Yangilandi!", "✅ Обновлено!", "✅ Updated!"),
                     false);
 
             try {
@@ -1284,17 +1146,21 @@ public class EmployerHandler {
                     String notificationText;
                     switch (newStatus) {
                         case VIEWED -> notificationText = getText(lang,
-                                "👁 Arizangiz ko'rib chiqildi: «" + jobTitle + "»",
-                                "👁 Ваша заявка просмотрена: «" + jobTitle + "»");
+                                "👁 Arizangiz ko'rildi: «" + jobTitle + "»",
+                                "👁 Ваша заявка просмотрена: «" + jobTitle + "»",
+                                "👁 Application viewed: «" + jobTitle + "»");
                         case INTERVIEW -> notificationText = getText(lang,
                                 "📅 Suhbatga chaqirildingiz: «" + jobTitle + "»",
-                                "📅 Вас пригласили на собеседование: «" + jobTitle + "»");
+                                "📅 Вас пригласили на собеседование: «" + jobTitle + "»",
+                                "📅 Interview: «" + jobTitle + "»");
                         case ACCEPTED -> notificationText = getText(lang,
-                                "🎉 Tabriklaymiz! Ishga qabul qilindingiz: «" + jobTitle + "»",
-                                "🎉 Поздравляем! Вы приняты: «" + jobTitle + "»");
+                                "🎉 Tabriklaymiz! «" + jobTitle + "»",
+                                "🎉 Поздравляем! «" + jobTitle + "»",
+                                "🎉 Congratulations! «" + jobTitle + "»");
                         case REJECTED -> notificationText = getText(lang,
-                                "😔 Afsuski, arizangiz rad etildi: «" + jobTitle + "»",
-                                "😔 К сожалению, ваша заявка отклонена: «" + jobTitle + "»");
+                                "😔 Afsuski, rad etildi: «" + jobTitle + "»",
+                                "😔 К сожалению, отклонено: «" + jobTitle + "»",
+                                "😔 Rejected: «" + jobTitle + "»");
                         default -> notificationText = "";
                     }
 
@@ -1304,9 +1170,7 @@ public class EmployerHandler {
                         telegram.execute(notifyMsg);
                     }
                 }
-            } catch (Exception e) {
-                log.error("❌ Xabar yuborishda xatolik", e);
-            }
+            } catch (Exception e) { log.error("Notify error", e); }
 
             try {
                 SendMessage updated = showApplications(chatId, lang);
@@ -1315,84 +1179,20 @@ public class EmployerHandler {
                 edit.setMessageId(messageId);
                 edit.setText(updated.getText());
                 edit.setParseMode("Markdown");
-                edit.setReplyMarkup((InlineKeyboardMarkup) updated.getReplyMarkup());
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
-            return null;
-        }
-
-        // ===== ESKI ACCEPT/REJECT =====
-        if (data != null && (data.startsWith("accept_app_") || data.startsWith("reject_app_"))) {
-            boolean isAccept = data.startsWith("accept_app_");
-            String[] parts = data.split("_");
-
-            String originalText = "";
-            if (callbackQuery.getMessage() instanceof org.telegram.telegrambots.meta.api.objects.Message msg) {
-                originalText = msg.hasText() ? msg.getText() : "";
-            }
-
-            String statusMessage = isAccept ?
-                    (lang.equals("ru") ? "✅ **Заявка принята**" : "✅ **Ariza qabul qilindi**") :
-                    (lang.equals("ru") ? "❌ **Заявка отклонена**" : "❌ **Ariza rad etildi**");
-
-            EditMessageText edit = new EditMessageText();
-            edit.setChatId(chatId.toString());
-            edit.setMessageId(messageId);
-            edit.setText(originalText + "\n\n" + statusMessage);
-            edit.setParseMode("Markdown");
-            try {
-                telegram.execute(edit);
-            } catch (Exception e) {
-                log.error("❌ Edit error", e);
-            }
-
-            if (parts.length >= 4) {
-                try {
-                    Long employeeChatId = Long.parseLong(parts[3]);
-                    if (isAccept) {
-                        Optional<EmployerEntity> employerOpt = employerRepository.findByEmployerChatId(chatId);
-                        Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findByUserId(employeeChatId);
-
-                        if (employerOpt.isPresent() && seekerOpt.isPresent()) {
-                            EmployerEntity employer = employerOpt.get();
-                            JobSeekerProfile seeker = seekerOpt.get();
-
-                            String seekerInfo = lang.equals("ru") ?
-                                    String.format("👤 **Кандидат:**\n\n👤 **ФИО:** %s\n📞 **Тел:** %s",
-                                            seeker.getFullName(), seeker.getPhoneNumber()) :
-                                    String.format("👤 **Nomzod:**\n\n👤 **F.I.O:** %s\n📞 **Tel:** %s",
-                                            seeker.getFullName(), seeker.getPhoneNumber());
-
-                            SendMessage employerInfoMsg = new SendMessage(chatId.toString(), seekerInfo);
-                            employerInfoMsg.setParseMode("Markdown");
-                            telegram.execute(employerInfoMsg);
-
-                            String employerInfo = String.format("🎉 **Arizangiz qabul qilindi!**\n\n🏢 **Ish beruvchi:** %s\n📞 **Tel:** %s",
-                                    employer.getFullName(), employer.getPhoneNumber());
-
-                            SendMessage seekerInfoMsg = new SendMessage(employeeChatId.toString(), employerInfo);
-                            seekerInfoMsg.setParseMode("Markdown");
-                            telegram.execute(seekerInfoMsg);
-                        }
-                    } else {
-                        String seekerMsgText = (lang.equals("ru") ? "⚠️ Ваша заявка была отклонена." : "⚠️ Arizangiz rad etildi.");
-                        SendMessage seekerMsg = new SendMessage(employeeChatId.toString(), seekerMsgText);
-                        telegram.execute(seekerMsg);
-                    }
-                } catch (Exception e) {
-                    log.error("❌ Xabar yuborishda xatolik", e);
+                if (updated.getReplyMarkup() instanceof InlineKeyboardMarkup) {
+                    edit.setReplyMarkup((InlineKeyboardMarkup) updated.getReplyMarkup());
                 }
-            }
+                telegram.execute(edit);
+            } catch (Exception e) { log.error("Edit error", e); }
             return null;
         }
 
+        sendAnswerCallback(callbackQuery.getId(), null, false);
         return null;
     }
 
     // ============================================
-    // ⭐️ 1. DASHBOARD
+    // DASHBOARD
     // ============================================
     private SendMessage showDashboard(Long chatId, String lang) {
         List<JobVacancy> myVacancies = jobVacancyRepository.findAllByEmployerChatId(chatId);
@@ -1408,124 +1208,41 @@ public class EmployerHandler {
 
         long totalApps = allApps.size();
         long pendingApps = allApps.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.PENDING).count();
-        long viewedApps = allApps.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.VIEWED).count();
-        long interviewApps = allApps.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.INTERVIEW).count();
-        long acceptedApps = allApps.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.ACCEPTED).count();
-        long rejectedApps = allApps.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.REJECTED).count();
 
         LocalDateTime todayStart = LocalDateTime.now().withHour(0).withMinute(0).withSecond(0);
-        LocalDateTime weekStart = LocalDateTime.now().minusDays(7);
-
         long todayApps = allApps.stream()
-                .filter(a -> a.getCreatedAt() != null && a.getCreatedAt().isAfter(todayStart))
-                .count();
-
-        long weekApps = allApps.stream()
-                .filter(a -> a.getCreatedAt() != null && a.getCreatedAt().isAfter(weekStart))
-                .count();
-
-        Map<Long, Long> appCountByVacancy = allApps.stream()
-                .collect(Collectors.groupingBy(JobApplication::getJobId, Collectors.counting()));
-
-        Optional<Map.Entry<Long, Long>> topVacancy = appCountByVacancy.entrySet().stream()
-                .max(Map.Entry.comparingByValue());
+                .filter(a -> a.getCreatedAt() != null && a.getCreatedAt().isAfter(todayStart)).count();
 
         StringBuilder sb = new StringBuilder();
+        sb.append(getText(lang,
+                "╔══════════════════════════════╗\n║   📊 ISH BERUVCHI PANELI    ║\n╚══════════════════════════════╝\n\n",
+                "╔══════════════════════════════╗\n║  📊 ПАНЕЛЬ РАБОТОДАТЕЛЯ     ║\n╚══════════════════════════════╝\n\n",
+                "╔══════════════════════════════╗\n║   📊 EMPLOYER DASHBOARD    ║\n╚══════════════════════════════╝\n\n"));
 
-        if (lang.equals("ru")) {
-            sb.append("╔════════════════════════════════╗\n");
-            sb.append("║   📊 ПАНЕЛЬ РАБОТОДАТЕЛЯ      ║\n");
-            sb.append("╚════════════════════════════════╝\n\n");
+        sb.append(getText(lang, "📋 VAKANSIYALAR:\n", "📋 ВАКАНСИИ:\n", "📋 VACANCIES:\n"));
+        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append(getText(lang, "   📌 Jami: ", "   📌 Всего: ", "   📌 Total: ")).append(totalVacancies).append("\n");
+        sb.append(getText(lang, "   🟢 Faol: ", "   🟢 Активных: ", "   🟢 Active: ")).append(activeVacancies).append("\n");
+        sb.append(getText(lang, "   🟣 To'ldirildi: ", "   🟣 Заполнено: ", "   🟣 Filled: ")).append(filledVacancies).append("\n");
+        sb.append(getText(lang, "   🔴 Arxiv: ", "   🔴 Архив: ", "   🔴 Archived: ")).append(archivedVacancies).append("\n\n");
 
-            sb.append("📋 **ВАКАНСИИ:**\n");
-            sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-            sb.append("   📌 Всего: **").append(totalVacancies).append("**\n");
-            if (activeVacancies > 0) sb.append("   🟢 Активных: **").append(activeVacancies).append("**\n");
-            if (filledVacancies > 0) sb.append("   🟣 Заполнено: **").append(filledVacancies).append("**\n");
-            if (archivedVacancies > 0) sb.append("   🔴 В архиве: **").append(archivedVacancies).append("**\n");
-            sb.append("\n");
-
-            if (totalApps > 0) {
-                sb.append("📩 **ЗАЯВКИ:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   📊 Всего: **").append(totalApps).append("**\n");
-                if (pendingApps > 0) sb.append("   ⏳ Новых: **").append(pendingApps).append("** 🆕\n");
-                if (viewedApps > 0) sb.append("   👁 Просмотрено: ").append(viewedApps).append("\n");
-                if (interviewApps > 0) sb.append("   📅 Собеседование: ").append(interviewApps).append("\n");
-                if (acceptedApps > 0) sb.append("   ✅ Принято: ").append(acceptedApps).append("\n");
-                if (rejectedApps > 0) sb.append("   ❌ Отклонено: ").append(rejectedApps).append("\n");
-                sb.append("\n");
-
-                sb.append("📅 **АКТИВНОСТЬ:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   🌞 Сегодня: **").append(todayApps).append("** заявок\n");
-                sb.append("   📆 За неделю: **").append(weekApps).append("** заявок\n\n");
-            } else {
-                sb.append("📩 **ЗАЯВКИ:**\n   📭 Пока нет заявок\n\n");
-            }
-
-            if (topVacancy.isPresent()) {
-                Long topId = topVacancy.get().getKey();
-                Long topCount = topVacancy.get().getValue();
-                String topTitle = jobVacancyRepository.findById(topId).map(JobVacancy::getTitle).orElse("Вакансия");
-                sb.append("🏆 **ТОП ВАКАНСИЯ:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   📌 ").append(topTitle).append("\n");
-                sb.append("   📩 ").append(topCount).append(" заявок\n");
-            }
-        } else {
-            sb.append("╔════════════════════════════════╗\n");
-            sb.append("║  📊 ISH BERUVCHI PANELI      ║\n");
-            sb.append("╚════════════════════════════════╝\n\n");
-
-            sb.append("📋 **VAKANSIYALAR:**\n");
-            sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-            sb.append("   📌 Jami: **").append(totalVacancies).append("**\n");
-            if (activeVacancies > 0) sb.append("   🟢 Faol: **").append(activeVacancies).append("**\n");
-            if (filledVacancies > 0) sb.append("   🟣 To'ldirildi: **").append(filledVacancies).append("**\n");
-            if (archivedVacancies > 0) sb.append("   🔴 Arxivda: **").append(archivedVacancies).append("**\n");
-            sb.append("\n");
-
-            if (totalApps > 0) {
-                sb.append("📩 **ARIZALAR:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   📊 Jami: **").append(totalApps).append("**\n");
-                if (pendingApps > 0) sb.append("   ⏳ Yangi: **").append(pendingApps).append("** 🆕\n");
-                if (viewedApps > 0) sb.append("   👁 Ko'rilgan: ").append(viewedApps).append("\n");
-                if (interviewApps > 0) sb.append("   📅 Suhbat: ").append(interviewApps).append("\n");
-                if (acceptedApps > 0) sb.append("   ✅ Qabul: ").append(acceptedApps).append("\n");
-                if (rejectedApps > 0) sb.append("   ❌ Rad etilgan: ").append(rejectedApps).append("\n");
-                sb.append("\n");
-
-                sb.append("📅 **FAOLLIK:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   🌞 Bugun: **").append(todayApps).append("** ta ariza\n");
-                sb.append("   📆 Hafta: **").append(weekApps).append("** ta ariza\n\n");
-            } else {
-                sb.append("📩 **ARIZALAR:**\n   📭 Hozircha ariza yo'q\n\n");
-            }
-
-            if (topVacancy.isPresent()) {
-                Long topId = topVacancy.get().getKey();
-                Long topCount = topVacancy.get().getValue();
-                String topTitle = jobVacancyRepository.findById(topId).map(JobVacancy::getTitle).orElse("Vakansiya");
-                sb.append("🏆 **TOP VAKANSIYA:**\n");
-                sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
-                sb.append("   📌 ").append(topTitle).append("\n");
-                sb.append("   📩 ").append(topCount).append(" ta ariza\n");
-            }
-        }
+        sb.append(getText(lang, "📩 ARIZALAR:\n", "📩 ЗАЯВКИ:\n", "📩 APPLICATIONS:\n"));
+        sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append(getText(lang, "   📊 Jami: ", "   📊 Всего: ", "   📊 Total: ")).append(totalApps).append("\n");
+        sb.append(getText(lang, "   ⏳ Yangi: ", "   ⏳ Новых: ", "   ⏳ New: ")).append(pendingApps).append("\n");
+        sb.append(getText(lang, "   🌞 Bugun: ", "   🌞 Сегодня: ", "   🌞 Today: ")).append(todayApps).append("\n");
 
         return createMessage(chatId, sb.toString(), getMainMenuKeyboard(lang));
     }
 
     // ============================================
-    // ⭐️ 2. NOMZODLAR BAZASI
+    // КАНДИДАТЫ
     // ============================================
     private SendMessage showCandidateSearch(Long chatId, String lang) {
-        StringBuilder sb = new StringBuilder();
-        sb.append(lang.equals("ru") ? "🔍 **Поиск кандидатов:**\n\n" : "🔍 **Nomzod izlash:**\n\n");
-        sb.append(lang.equals("ru") ? "Выберите категорию:" : "Kategoriyani tanlang:");
+        String text = getText(lang,
+                "🔍 **Nomzod izlash:**\n\nKategoriyani tanlang:",
+                "🔍 **Поиск кандидатов:**\n\nВыберите категорию:",
+                "🔍 **Search candidates:**\n\nChoose category:");
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -1540,30 +1257,27 @@ public class EmployerHandler {
 
         for (int i = 0; i < categories.size(); i += 2) {
             List<InlineKeyboardButton> row = new ArrayList<>();
-
             InlineKeyboardButton btn1 = new InlineKeyboardButton();
             btn1.setText(categories.get(i));
             btn1.setCallbackData("cand_cat_" + categories.get(i));
             row.add(btn1);
-
             if (i + 1 < categories.size()) {
                 InlineKeyboardButton btn2 = new InlineKeyboardButton();
                 btn2.setText(categories.get(i + 1));
                 btn2.setCallbackData("cand_cat_" + categories.get(i + 1));
                 row.add(btn2);
             }
-
             rows.add(row);
         }
 
         InlineKeyboardButton allBtn = new InlineKeyboardButton();
-        allBtn.setText(lang.equals("ru") ? "🌐 Все кандидаты" : "🌐 Barcha nomzodlar");
+        allBtn.setText(getText(lang, "🌐 Barcha nomzodlar", "🌐 Все кандидаты", "🌐 All candidates"));
         allBtn.setCallbackData("cand_cat_ALL");
         rows.add(List.of(allBtn));
 
         markup.setKeyboard(rows);
 
-        SendMessage message = new SendMessage(chatId.toString(), sb.toString());
+        SendMessage message = new SendMessage(chatId.toString(), text);
         message.setParseMode("Markdown");
         message.setReplyMarkup(markup);
         return message;
@@ -1571,35 +1285,31 @@ public class EmployerHandler {
 
     private SendMessage showCandidatesByCategory(Long chatId, String category, String lang) {
         List<JobSeekerProfile> allCandidates = jobSeekerProfileRepository.findAll();
-
-        List<JobSeekerProfile> filtered;
-        if ("ALL".equals(category)) {
-            filtered = allCandidates;
-        } else {
-            filtered = allCandidates.stream()
-                    .filter(p -> p.getCategory() != null && p.getCategory().equalsIgnoreCase(category))
-                    .collect(Collectors.toList());
-        }
+        List<JobSeekerProfile> filtered = "ALL".equals(category)
+                ? allCandidates
+                : allCandidates.stream()
+                .filter(p -> p.getCategory() != null && p.getCategory().equalsIgnoreCase(category))
+                .collect(Collectors.toList());
 
         if (filtered.isEmpty()) {
             return createMessage(chatId,
-                    lang.equals("ru") ? "📭 Кандидаты не найдены." : "📭 Nomzodlar topilmadi.",
+                    getText(lang, "📭 Topilmadi.", "📭 Не найдено.", "📭 Not found."),
                     getMainMenuKeyboard(lang));
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(lang.equals("ru")
-                ? "👥 **Найдено кандидатов:** " + filtered.size() + "\n\n"
-                : "👥 **Topilgan nomzodlar:** " + filtered.size() + "\n\n");
+        sb.append(getText(lang,
+                "👥 Topildi: " + filtered.size() + "\n\n",
+                "👥 Найдено: " + filtered.size() + "\n\n",
+                "👥 Found: " + filtered.size() + "\n\n"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         for (int i = 0; i < Math.min(filtered.size(), 10); i++) {
             JobSeekerProfile p = filtered.get(i);
-
             String name = p.getFullName() != null ? p.getFullName() : "Nomzod";
-            String prof = p.getProfession() != null ? p.getProfession() : "Ko'rsatilmagan";
+            String prof = p.getProfession() != null ? p.getProfession() : "-";
             String rating = p.getRating() != null ? String.format("%.1f", p.getRating()) : "0.0";
 
             sb.append(i + 1).append(". 👤 **").append(name).append("**\n")
@@ -1613,7 +1323,7 @@ public class EmployerHandler {
         }
 
         InlineKeyboardButton backBtn = new InlineKeyboardButton();
-        backBtn.setText(lang.equals("ru") ? "⬅️ Назад" : "⬅️ Orqaga");
+        backBtn.setText(getText(lang, "⬅️ Orqaga", "⬅️ Назад", "⬅️ Back"));
         backBtn.setCallbackData("cand_cat_BACK");
         rows.add(List.of(backBtn));
 
@@ -1627,44 +1337,34 @@ public class EmployerHandler {
 
     private SendMessage showCandidateProfile(Long chatId, Long candidateId, String lang) {
         Optional<JobSeekerProfile> candOpt = jobSeekerProfileRepository.findById(candidateId);
-
         if (candOpt.isEmpty()) {
             return createMessage(chatId,
-                    lang.equals("ru") ? "❌ Кандидат не найден!" : "❌ Nomzod topilmadi!",
+                    getText(lang, "❌ Topilmadi!", "❌ Не найден!", "❌ Not found!"),
                     getMainMenuKeyboard(lang));
         }
 
         JobSeekerProfile c = candOpt.get();
-
         String name = c.getFullName() != null ? c.getFullName() : "Nomzod";
-        String phone = c.getPhoneNumber() != null ? c.getPhoneNumber() : "Ko'rsatilmagan";
-        String prof = c.getProfession() != null ? c.getProfession() : "Ko'rsatilmagan";
-        String exp = c.getExperience() != null ? c.getExperience() : "Ko'rsatilmagan";
+        String phone = c.getPhoneNumber() != null ? c.getPhoneNumber() : "-";
+        String prof = c.getProfession() != null ? c.getProfession() : "-";
         String rating = c.getRating() != null ? String.format("%.1f ⭐", c.getRating()) : "0.0 ⭐";
-        String cat = c.getCategory() != null ? c.getCategory() : "Ko'rsatilmagan";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("╔══════════════════════════════╗\n");
-        sb.append("║  👤 **Nomzod profili**\n");
-        sb.append("╠══════════════════════════════╣\n");
-        sb.append("║ 👤 **").append(name).append("**\n");
-        sb.append("║ 📞 ").append(phone).append("\n");
-        sb.append("║ 💼 ").append(prof).append("\n");
-        sb.append("║ 📁 ").append(cat).append("\n");
-        sb.append("║ 📝 ").append(exp.length() > 100 ? exp.substring(0, 100) + "..." : exp).append("\n");
-        sb.append("║ ⭐ ").append(rating).append("\n");
-        sb.append("╚══════════════════════════════╝");
+        sb.append("👤 **").append(name).append("**\n");
+        sb.append("📞 ").append(phone).append("\n");
+        sb.append("💼 ").append(prof).append("\n");
+        sb.append("⭐ ").append(rating).append("\n");
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         InlineKeyboardButton chatBtn = new InlineKeyboardButton();
-        chatBtn.setText(lang.equals("ru") ? "💬 Написать сообщение" : "💬 Xabar yozish");
+        chatBtn.setText(getText(lang, "💬 Xabar yozish", "💬 Написать", "💬 Message"));
         chatBtn.setCallbackData("cand_chat_" + c.getUserId());
         rows.add(List.of(chatBtn));
 
         InlineKeyboardButton backBtn = new InlineKeyboardButton();
-        backBtn.setText(lang.equals("ru") ? "⬅️ Назад" : "⬅️ Orqaga");
+        backBtn.setText(getText(lang, "⬅️ Orqaga", "⬅️ Назад", "⬅️ Back"));
         backBtn.setCallbackData("cand_cat_ALL");
         rows.add(List.of(backBtn));
 
@@ -1677,33 +1377,30 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // ⭐️ 3. CHAT
+    // ЧАТ
     // ============================================
     private SendMessage showChatMenu(Long chatId, String lang) {
         List<Long> partners = chatMessageRepository.findAllChatPartners(chatId);
 
         if (partners.isEmpty()) {
             return createMessage(chatId,
-                    lang.equals("ru") ? "💬 **Чатов пока нет.**" : "💬 **Chatlar yo'q.**",
+                    getText(lang, "💬 Chatlar yo'q.", "💬 Чатов нет.", "💬 No chats."),
                     getMainMenuKeyboard(lang));
         }
 
         StringBuilder sb = new StringBuilder();
-        sb.append(lang.equals("ru") ? "💬 **Ваши чаты:**\n\n" : "💬 **Sizning chatlaringiz:**\n\n");
+        sb.append(getText(lang, "💬 **Chatlar:**\n\n", "💬 **Чаты:**\n\n", "💬 **Chats:**\n\n"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        for (int i = 0; i < partners.size(); i++) {
-            Long partnerId = partners.get(i);
-
+        for (Long partnerId : partners) {
             Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findByUserId(partnerId);
-            String name = seekerOpt.map(JobSeekerProfile::getFullName).orElse("Foydalanuvchi");
-
-            long unread = chatMessageRepository.countByReceiverChatIdAndSenderChatIdAndIsReadFalse(chatId, partnerId);
+            String name = seekerOpt.map(JobSeekerProfile::getFullName).orElse("User");
+            long unread = chatMessageRepository
+                    .countByReceiverChatIdAndSenderChatIdAndIsReadFalse(chatId, partnerId);
             String badge = unread > 0 ? " 🔴 (" + unread + ")" : "";
-
-            sb.append(i + 1).append(". 👤 **").append(name).append("**").append(badge).append("\n");
+            sb.append("👤 ").append(name).append(badge).append("\n");
 
             InlineKeyboardButton chatBtn = new InlineKeyboardButton();
             chatBtn.setText("💬 " + name + badge);
@@ -1730,25 +1427,24 @@ public class EmployerHandler {
         }
 
         Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findByUserId(partnerId);
-        String partnerName = seekerOpt.map(JobSeekerProfile::getFullName).orElse("Foydalanuvchi");
+        String partnerName = seekerOpt.map(JobSeekerProfile::getFullName).orElse("User");
 
         StringBuilder sb = new StringBuilder();
-        sb.append(getText(lang, "💬 **Chat: " + partnerName + "**\n\n",
-                "💬 **Чат: " + partnerName + "**\n\n"));
+        sb.append(getText(lang, "💬 Chat: " + partnerName + "\n\n",
+                "💬 Чат: " + partnerName + "\n\n", "💬 Chat: " + partnerName + "\n\n"));
 
         if (messages.isEmpty()) {
-            sb.append(getText(lang, "(Xabarlar yo'q)\n", "(Сообщений нет)\n"));
+            sb.append(getText(lang, "(Bo'sh)\n", "(Пусто)\n", "(Empty)\n"));
         } else {
             int start = Math.max(0, messages.size() - 20);
             for (int i = start; i < messages.size(); i++) {
                 ChatMessage m = messages.get(i);
                 boolean isMine = m.getSenderChatId().equals(chatId);
-                sb.append(isMine ? "👤 **Siz:** " : "👥 **" + partnerName + ":** ")
+                sb.append(isMine ? "👤 Siz: " : "👥 " + partnerName + ": ")
                         .append(m.getMessageText()).append("\n\n");
             }
         }
-
-        sb.append(getText(lang, "\n✍️ Xabar yozing:", "\n✍️ Напишите сообщение:"));
+        sb.append(getText(lang, "\n✍️ Yozing:", "\n✍️ Напишите:", "\n✍️ Write:"));
 
         states.put(chatId, EmployerState.WAITING_FOR_CHAT_MESSAGE);
         draftData.get(chatId).put("chat_partner_id", String.valueOf(partnerId));
@@ -1758,13 +1454,13 @@ public class EmployerHandler {
 
     private ReplyKeyboardMarkup getChatKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "❌ Bekor qilish", "❌ Отмена")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "❌ Bekor", "❌ Отмена", "❌ Cancel")),
+                List.of(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"))
         ));
     }
 
     // ============================================
-    // ⭐️ 4. REYTING
+    // РЕЙТИНГ
     // ============================================
     private SendMessage showEmployerRating(Long chatId, String lang) {
         Double avgRating = employerReviewRepository.getAverageRating(chatId);
@@ -1774,100 +1470,57 @@ public class EmployerHandler {
         double rating = avgRating != null ? avgRating : 0.0;
 
         StringBuilder sb = new StringBuilder();
-        sb.append(getText(lang, "⭐ **Sizning reytingingiz**\n\n",
-                "⭐ **Ваш рейтинг**\n\n"));
-
-        sb.append("┌─────────────────────────────┐\n");
-        sb.append("│ ⭐ **").append(String.format("%.1f", rating)).append(" / 5.0**\n");
-        sb.append("│ 📊 Baholar: ").append(reviewCount).append(" ta\n");
-
-        if (reviewCount > 0) {
-            long fiveStars = reviews.stream().filter(r -> r.getRating() == 5).count();
-            long fourStars = reviews.stream().filter(r -> r.getRating() == 4).count();
-            long threeStars = reviews.stream().filter(r -> r.getRating() == 3).count();
-            long twoStars = reviews.stream().filter(r -> r.getRating() == 2).count();
-            long oneStar = reviews.stream().filter(r -> r.getRating() == 1).count();
-
-            sb.append("│\n");
-            sb.append("│ 5️⃣ ").append(fiveStars).append(" ta\n");
-            sb.append("│ 4️⃣ ").append(fourStars).append(" ta\n");
-            sb.append("│ 3️⃣ ").append(threeStars).append(" ta\n");
-            sb.append("│ 2️⃣ ").append(twoStars).append(" ta\n");
-            sb.append("│ 1️⃣ ").append(oneStar).append(" ta\n");
-        }
-
-        sb.append("└─────────────────────────────┘\n\n");
+        sb.append(getText(lang, "⭐ **Reyting:**\n\n", "⭐ **Рейтинг:**\n\n", "⭐ **Rating:**\n\n"));
+        sb.append("⭐ **").append(String.format("%.1f", rating)).append(" / 5.0**\n");
+        sb.append(getText(lang, "📊 Baholar: ", "📊 Оценок: ", "📊 Reviews: ")).append(reviewCount).append("\n\n");
 
         if (!reviews.isEmpty()) {
-            sb.append(getText(lang, "📝 **Oxirgi baholar:**\n\n",
-                    "📝 **Последние отзывы:**\n\n"));
-
             int count = 0;
             for (EmployerReview r : reviews) {
                 if (count >= 5) break;
-
                 String stars = "⭐".repeat(r.getRating());
                 String comment = r.getComment() != null && !r.getComment().isBlank()
-                        ? r.getComment()
-                        : (lang.equals("ru") ? "(без комментария)" : "(izohsiz)");
-
+                        ? r.getComment() : "-";
                 sb.append(stars).append(" — ").append(comment).append("\n");
                 count++;
             }
         } else {
-            sb.append(getText(lang, "📭 Hozircha baholar yo'q.\nNomzodlar ishga qabul qilingandan so'ng sizni baholaydi.",
-                    "📭 Пока нет отзывов.\nКандидаты смогут оценить вас после трудоустройства."));
+            sb.append(getText(lang, "📭 Baholar yo'q.", "📭 Отзывов нет.", "📭 No reviews."));
         }
 
         return createMessage(chatId, sb.toString(), getMainMenuKeyboard(lang));
-    }    // ============================================
-    // ARIZALAR
+    }
+
+    // ============================================
+    // ЗАЯВКИ
     // ============================================
     private SendMessage showApplications(Long chatId, String lang) {
         List<JobApplication> applications = jobApplicationRepository.findAllByEmployerChatId(chatId);
 
         if (applications == null || applications.isEmpty()) {
-            String emptyMsg = lang.equals("ru")
-                    ? "📭 У вас пока нет заявок."
-                    : "📭 Sizda hozircha arizalar yo'q.";
-            return createMessage(chatId, emptyMsg, getMainMenuKeyboard(lang));
+            return createMessage(chatId,
+                    getText(lang, "📭 Arizalar yo'q.", "📭 Заявок нет.", "📭 No applications."),
+                    getMainMenuKeyboard(lang));
         }
 
-        StringBuilder sb = new StringBuilder(lang.equals("ru")
-                ? "📩 **Ваши заявки:**\n\n"
-                : "📩 **Sizning arizalaringiz:**\n\n");
-
-        long pending = applications.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.PENDING).count();
-        long viewed = applications.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.VIEWED).count();
-        long interview = applications.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.INTERVIEW).count();
-        long accepted = applications.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.ACCEPTED).count();
-        long rejected = applications.stream().filter(a -> a.getStatus() == JobApplication.ApplicationStatus.REJECTED).count();
-
-        sb.append(lang.equals("ru") ? "📊 **Статистика:**\n" : "📊 **Statistika:**\n");
-        sb.append("⏳ ").append(lang.equals("ru") ? "Ожидание" : "Kutilmoqda").append(": ").append(pending).append("\n");
-        sb.append("👁 ").append(lang.equals("ru") ? "Просмотрено" : "Ko'rib chiqilgan").append(": ").append(viewed).append("\n");
-        sb.append("📅 ").append(lang.equals("ru") ? "Собеседование" : "Suhbat").append(": ").append(interview).append("\n");
-        sb.append("✅ ").append(lang.equals("ru") ? "Принято" : "Qabul qilingan").append(": ").append(accepted).append("\n");
-        sb.append("❌ ").append(lang.equals("ru") ? "Отклонено" : "Rad etilgan").append(": ").append(rejected).append("\n\n");
+        StringBuilder sb = new StringBuilder(getText(lang,
+                "📩 **Arizalar:**\n\n", "📩 **Заявки:**\n\n", "📩 **Applications:**\n\n"));
 
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         for (int i = 0; i < applications.size(); i++) {
             JobApplication app = applications.get(i);
-
             String jobTitle = jobVacancyRepository.findById(app.getJobId())
                     .map(JobVacancy::getTitle).orElse("Vakansiya #" + app.getJobId());
-
             Optional<JobSeekerProfile> seekerOpt = jobSeekerProfileRepository.findById(app.getJobSeekerId());
             String candidateName = seekerOpt.map(JobSeekerProfile::getFullName).orElse("Nomzod");
 
-            sb.append("\n").append(i + 1).append(". 📌 **").append(jobTitle).append("**\n");
+            sb.append(i + 1).append(". 📌 ").append(jobTitle).append("\n");
             sb.append("   👤 ").append(candidateName).append("\n");
-            sb.append("   📊 ").append(getStatusText(app.getStatus(), lang)).append("\n");
+            sb.append("   📊 ").append(getStatusText(app.getStatus(), lang)).append("\n\n");
 
             List<InlineKeyboardButton> statusRow = new ArrayList<>();
-
             InlineKeyboardButton viewBtn = new InlineKeyboardButton();
             viewBtn.setText("👁");
             viewBtn.setCallbackData("emp_app_status_view_" + app.getId());
@@ -1910,59 +1563,73 @@ public class EmployerHandler {
                 case CANCELLED -> "🚫 Отменено";
             };
         }
+        if (lang.equals("en")) {
+            return switch (status) {
+                case PENDING -> "⏳ Pending";
+                case VIEWED -> "👁 Viewed";
+                case INTERVIEW -> "📅 Interview";
+                case ACCEPTED -> "✅ Accepted";
+                case REJECTED -> "❌ Rejected";
+                case CANCELLED -> "🚫 Cancelled";
+            };
+        }
         return switch (status) {
             case PENDING -> "⏳ Kutilmoqda";
-            case VIEWED -> "👁 Ko'rib chiqilgan";
+            case VIEWED -> "👁 Ko'rilgan";
             case INTERVIEW -> "📅 Suhbat";
-            case ACCEPTED -> "✅ Qabul qilingan";
+            case ACCEPTED -> "✅ Qabul";
             case REJECTED -> "❌ Rad etilgan";
-            case CANCELLED -> "🚫 Bekor qilingan";
+            case CANCELLED -> "🚫 Bekor";
         };
     }
 
     // ============================================
-    // RO'YXATDAN O'TISH
+    // РЕГИСТРАЦИЯ
     // ============================================
     private SendMessage handleRegistration(Long chatId, String text, Message message, String lang, Optional<EmployerEntity> profileOpt) {
-        EmployerState regState = states.getOrDefault(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
+        EmployerState regState = states.getOrDefault(chatId, EmployerState.WAITING_FOR_LANGUAGE);
+
+        if (regState == EmployerState.WAITING_FOR_LANGUAGE) {
+            return createInlineLanguageMessage(chatId,
+                    "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
+        }
 
         if (regState == EmployerState.WAITING_FOR_REG_FULL_NAME) {
-            if (text.isEmpty() || text.startsWith("/") || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
-                    || text.toLowerCase().contains("ish beruvchi") || text.toLowerCase().contains("employer")) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
+            if (text.isEmpty() || text.startsWith("/")) {
                 return createMessage(chatId,
-                        getText(lang,
-                                "👤 **Ish beruvchi sifatida ro'yxatdan o'tish**\n\nIsm va familiyangizni kiriting:",
-                                "👤 **Регистрация работодателя**\n\nВведите имя и фамилию:"));
+                        getText(lang, "👤 **Ism-familiya:**", "👤 **Имя и фамилия:**", "👤 **Name:**"),
+                        getCancelKeyboard(lang));
             }
             if (text.length() < 3) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Ism kamida 3 ta belgidan iborat bo'lishi kerak:", "⚠️ Имя минимум 3 символа:"),
+                        getText(lang, "⚠️ Min 3 belgi:", "⚠️ Мин 3:", "⚠️ Min 3:"),
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("reg_fio", text);
             states.put(chatId, EmployerState.WAITING_FOR_REG_AGE);
             return createMessage(chatId,
-                    getText(lang, "🎂 **Yoshingizni kiriting (18+):**", "🎂 **Введите возраст (18+):**"),
+                    getText(lang, "🎂 **Yosh (18+):**", "🎂 **Возраст (18+):**", "🎂 **Age (18+):**"),
                     getCancelKeyboard(lang));
         }
 
         if (regState == EmployerState.WAITING_FOR_REG_AGE) {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                return createMessage(chatId, getText(lang, "Ism va familiyangizni kiriting:", "Введите имя и фамилию:"));
+                return createMessage(chatId,
+                        getText(lang, "👤 Ism-familiya:", "👤 Имя:", "👤 Name:"),
+                        getCancelKeyboard(lang));
             }
             if (!isValidAge(text)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Yosh 18 dan katta va 99 dan kichik bo'lishi kerak:",
-                                "⚠️ Возраст от 18 до 99:"),
+                        getText(lang, "⚠️ 18-99:", "⚠️ 18-99:", "⚠️ 18-99:"),
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("reg_age", text);
             states.put(chatId, EmployerState.WAITING_FOR_REG_PASSPORT);
             return createMessage(chatId,
-                    getText(lang, "🪪 **Pasport seriya va raqamini kiriting:**",
-                            "🪪 **Введите серию и номер паспорта:**"),
+                    getText(lang, "🪪 **Pasport (AA1234567):**",
+                            "🪪 **Паспорт (AA1234567):**",
+                            "🪪 **Passport (AA1234567):**"),
                     getCancelKeyboard(lang));
         }
 
@@ -1970,18 +1637,21 @@ public class EmployerHandler {
             if (isCancelText(text)) {
                 states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
                 draftData.get(chatId).clear();
-                return createMessage(chatId, getText(lang, "Ism va familiyangizni kiriting:", "Введите имя и фамилию:"));
+                return createMessage(chatId,
+                        getText(lang, "👤 Ism-familiya:", "👤 Имя:", "👤 Name:"),
+                        getCancelKeyboard(lang));
             }
             if (!PASSPORT_PATTERN.matcher(text.trim()).matches()) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Pasport formati: 2 ta katta harf + 7 ta raqam (AA1234567):",
-                                "⚠️ Формат: 2 заглавные буквы + 7 цифр (AA1234567):"),
+                        getText(lang, "⚠️ Format AA1234567:",
+                                "⚠️ Формат AA1234567:",
+                                "⚠️ Format AA1234567:"),
                         getCancelKeyboard(lang));
             }
-            draftData.get(chatId).put("reg_passport", text);
+            draftData.get(chatId).put("reg_passport", text.trim().toUpperCase());
             states.put(chatId, EmployerState.WAITING_FOR_REG_PHONE);
             return createMessage(chatId,
-                    getText(lang, "📞 **Telefon raqamingizni yuboring:**", "📞 **Отправьте номер телефона:**"),
+                    getText(lang, "📞 **Telefon:**", "📞 **Телефон:**", "📞 **Phone:**"),
                     getContactKeyboard(lang));
         }
 
@@ -1989,24 +1659,24 @@ public class EmployerHandler {
             String phone = message.hasContact() ? message.getContact().getPhoneNumber() : text;
             if (!isValidPhone(phone)) {
                 return createMessage(chatId,
-                        getText(lang, "⚠️ Format: +998901234567", "⚠️ Формат: +998901234567"),
+                        getText(lang, "⚠️ +998901234567", "⚠️ +998901234567", "⚠️ +998901234567"),
                         getContactKeyboard(lang));
             }
-            draftData.get(chatId).put("reg_phone", phone);
+            draftData.get(chatId).put("reg_phone", normalizePhone(phone));
             states.put(chatId, EmployerState.WAITING_FOR_REG_COMPANY);
             return createMessage(chatId,
-                    getText(lang,
-                            "🏢 **Kompaniya nomini kiriting:**\n\n(Agar yo'q bo'lsa, \"Yo'q\" deb yozing)",
-                            "🏢 **Введите название компании:**\n\n(Если нет, напишите \"Нет\")"),
+                    getText(lang, "🏢 **Kompaniya nomi:**\n(Yo'q bo'lsa \"Yo'q\")",
+                            "🏢 **Название компании:**\n(Если нет, \"Нет\")",
+                            "🏢 **Company name:**\n(If none, \"No\")"),
                     getCancelKeyboard(lang));
         }
 
         if (regState == EmployerState.WAITING_FOR_REG_COMPANY) {
-            if (isCancelText(text)) {
+            if (text == null || text.isBlank()) {
                 return createMessage(chatId,
-                        getText(lang,
-                                "⚠️ Iltimos, kompaniya nomini kiriting yoki \"Yo'q\" deb yozing:",
-                                "⚠️ Введите название компании или напишите \"Нет\":"),
+                        getText(lang, "⚠️ Kiriting yoki \"Yo'q\":",
+                                "⚠️ Введите или \"Нет\":",
+                                "⚠️ Enter or \"No\":"),
                         getCancelKeyboard(lang));
             }
 
@@ -2028,7 +1698,6 @@ public class EmployerHandler {
 
             String companyName = isNoCompanyText(text) ? null : text;
             entity.setCompanyName(companyName);
-
             if (entity.getLanguage() == null) entity.setLanguage(lang);
             if (entity.getCreatedAt() == null) entity.setCreatedAt(LocalDateTime.now());
 
@@ -2038,86 +1707,68 @@ public class EmployerHandler {
 
             return createMessage(chatId,
                     getText(lang,
-                            "✅ **Ro'yxatdan o'tdingiz!**" +
-                                    (companyName != null ? "\n\n🏢 Kompaniya: **" + companyName + "**" : ""),
-                            "✅ **Регистрация завершена!**" +
-                                    (companyName != null ? "\n\n🏢 Компания: **" + companyName + "**" : "")),
+                            "✅ **Ro'yxatdan o'tdingiz!**" + (companyName != null ? "\n🏢 " + companyName : ""),
+                            "✅ **Регистрация завершена!**" + (companyName != null ? "\n🏢 " + companyName : ""),
+                            "✅ **Registration complete!**" + (companyName != null ? "\n🏢 " + companyName : "")),
                     getMainMenuKeyboard(lang));
         }
 
         states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
         return createMessage(chatId,
-                getText(lang, "Ism va familiyangizni kiriting:", "Введите имя и фамилию:"));
+                getText(lang, "👤 Ism-familiya:", "👤 Имя:", "👤 Name:"),
+                getCancelKeyboard(lang));
     }
 
     // ============================================
-    // KOMPANIYA MA'LUMOTLARI
+    // КОМПАНИЯ
     // ============================================
     private SendMessage showCompanyInfo(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
         if (profileOpt.isEmpty()) {
             states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-            return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
+            return createMessage(chatId,
+                    getText(lang, "❌ Topilmadi!", "❌ Не найден!", "❌ Not found!"));
         }
 
         EmployerEntity e = profileOpt.get();
-        String company = e.getCompanyName() != null && !e.getCompanyName().isBlank()
-                ? e.getCompanyName() : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
-        String desc = e.getCompanyDescription() != null && !e.getCompanyDescription().isBlank()
-                ? e.getCompanyDescription() : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
-        String address = e.getCompanyAddress() != null && !e.getCompanyAddress().isBlank()
-                ? e.getCompanyAddress() : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
-        String website = e.getCompanyWebsite() != null && !e.getCompanyWebsite().isBlank()
-                ? e.getCompanyWebsite() : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
-        String size = e.getCompanySize() != null && !e.getCompanySize().isBlank()
-                ? e.getCompanySize() : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
+        String ns = getText(lang, "Ko'rsatilmagan", "Не указано", "N/A");
+
+        String company = e.getCompanyName() != null && !e.getCompanyName().isBlank() ? e.getCompanyName() : ns;
+        String desc = e.getCompanyDescription() != null && !e.getCompanyDescription().isBlank() ? e.getCompanyDescription() : ns;
+        String address = e.getCompanyAddress() != null && !e.getCompanyAddress().isBlank() ? e.getCompanyAddress() : ns;
+        String website = e.getCompanyWebsite() != null && !e.getCompanyWebsite().isBlank() ? e.getCompanyWebsite() : ns;
+        String size = e.getCompanySize() != null && !e.getCompanySize().isBlank() ? e.getCompanySize() : ns;
         String logo = e.getCompanyLogoFileId() != null ? "✅" : "❌";
 
-        String msg;
-        if (lang.equals("ru")) {
-            msg = String.format("""
-                    🏢 **Информация о компании:**
-                    
-                    🏷 **Название:** %s
-                    📝 **Описание:** %s
-                    📍 **Адрес:** %s
-                    🌐 **Веб-сайт:** %s
-                    👥 **Сотрудников:** %s
-                    🖼 **Логотип:** %s
-                    """,
-                    company, desc, address, website, size, logo);
-        } else {
-            msg = String.format("""
-                    🏢 **Kompaniya ma'lumotlari:**
-                    
-                    🏷 **Nomi:** %s
-                    📝 **Tavsif:** %s
-                    📍 **Manzil:** %s
-                    🌐 **Veb-sayt:** %s
-                    👥 **Xodimlar:** %s
-                    🖼 **Logotip:** %s
-                    """,
-                    company, desc, address, website, size, logo);
-        }
+        String msg = getText(lang,
+                String.format("🏢 **Kompaniya:**\n\n🏷 %s\n📝 %s\n📍 %s\n🌐 %s\n👥 %s\n🖼 %s",
+                        company, desc, address, website, size, logo),
+                String.format("🏢 **Компания:**\n\n🏷 %s\n📝 %s\n📍 %s\n🌐 %s\n👥 %s\n🖼 %s",
+                        company, desc, address, website, size, logo),
+                String.format("🏢 **Company:**\n\n🏷 %s\n📝 %s\n📍 %s\n🌐 %s\n👥 %s\n🖼 %s",
+                        company, desc, address, website, size, logo));
 
         return createMessage(chatId, msg, getCompanyInfoKeyboard(lang));
     }
 
     // ============================================
-    // BLOKLANGAN NOMZODLAR
+    // БЛОКИРОВКА
     // ============================================
     private SendMessage showBlockedCandidates(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
         if (profileOpt.isEmpty()) {
             states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-            return createMessage(chatId, getText(lang, "❌ Profil topilmadi.", "❌ Профиль не найден."));
+            return createMessage(chatId,
+                    getText(lang, "❌ Topilmadi!", "❌ Не найден!", "❌ Not found!"));
         }
 
         String blocked = profileOpt.get().getBlockedCandidateIds();
         String list;
+
         if (blocked == null || blocked.isBlank()) {
-            list = lang.equals("ru") ? "📭 Список пуст." : "📭 Ro'yxat bo'sh.";
+            list = getText(lang, "📭 Bo'sh.", "📭 Пусто.", "📭 Empty.");
         } else {
             StringBuilder sb = new StringBuilder();
-            sb.append(lang.equals("ru") ? "🚫 **Заблокированные кандидаты:**\n\n" : "🚫 **Bloklangan nomzodlar:**\n\n");
+            sb.append(getText(lang, "🚫 **Bloklangan:**\n\n",
+                    "🚫 **Заблокированные:**\n\n", "🚫 **Blocked:**\n\n"));
             String[] ids = blocked.split(",");
             for (int i = 0; i < ids.length; i++) {
                 sb.append(i + 1).append(". <code>").append(ids[i]).append("</code>\n");
@@ -2132,7 +1783,182 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // YORDAMCHI METODLAR
+    // РЕДАКТ ВАКАНСИИ
+    // ============================================
+    private SendMessage handleEditVacancyField(Long chatId, String text, String field, String lang,
+                                               String uzError, String ruError, String enError) {
+        if (text == null || text.isBlank()) {
+            return createMessage(chatId,
+                    getText(lang, "⚠️ " + uzError, "⚠️ " + ruError, "⚠️ " + enError),
+                    getCancelKeyboard(lang));
+        }
+
+        String vacancyIdStr = draftData.get(chatId).get("edit_vacancy_id");
+        if (vacancyIdStr == null) {
+            states.put(chatId, EmployerState.MAIN_MENU);
+            return createMessage(chatId,
+                    getText(lang, "❌ Xatolik!", "❌ Ошибка!", "❌ Error!"),
+                    getMainMenuKeyboard(lang));
+        }
+
+        Long vacancyId = Long.parseLong(vacancyIdStr);
+        Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
+        if (vacOpt.isEmpty()) {
+            states.put(chatId, EmployerState.MAIN_MENU);
+            return createMessage(chatId,
+                    getText(lang, "❌ Topilmadi!", "❌ Не найдено!", "❌ Not found!"),
+                    getMainMenuKeyboard(lang));
+        }
+
+        JobVacancy vacancy = vacOpt.get();
+        switch (field) {
+            case "title" -> vacancy.setTitle(text);
+            case "salary" -> vacancy.setSalary(text);
+            case "requirements" -> vacancy.setRequirements(text);
+            case "workHours" -> vacancy.setWorkHours(text);
+        }
+        jobVacancyRepository.save(vacancy);
+
+        states.put(chatId, EmployerState.MAIN_MENU);
+        draftData.get(chatId).clear();
+
+        return createMessage(chatId,
+                getText(lang, "✅ Yangilandi!", "✅ Обновлено!", "✅ Updated!"),
+                getMainMenuKeyboard(lang));
+    }
+
+    // ============================================
+    // СОЗДАНИЕ ВАКАНСИИ (без запроса телефона)
+    // ============================================
+    private SendMessage createVacancyAndNotify(Long chatId, String phoneText,
+                                               Optional<EmployerEntity> profileOpt, String lang) {
+        Map<String, String> data = draftData.getOrDefault(chatId, Map.of());
+
+        JobVacancy vacancy = new JobVacancy();
+        vacancy.setEmployerChatId(chatId);
+        vacancy.setTitle(data.getOrDefault("title", "Ko'rsatilmadi"));
+        vacancy.setCategory(data.getOrDefault("category", "Boshqa"));
+        vacancy.setType(data.getOrDefault("type", "To'liq bandlik"));
+        vacancy.setSalary(data.getOrDefault("salary", "Kelishiladi"));
+        vacancy.setWorkHours(data.getOrDefault("workHours", "8 soat"));
+
+        String countStr = data.getOrDefault("workerCount", "1");
+        vacancy.setWorkerCount(countStr.matches("\\d+") ? Integer.parseInt(countStr) : 1);
+
+        vacancy.setRequirements(data.getOrDefault("requirements", "Ko'rsatilmadi"));
+        vacancy.setPhoneNumber(phoneText);
+        vacancy.setIsActive(true);
+        vacancy.setVacancyStatus(null);
+        vacancy.setCompanyName(profileOpt.map(EmployerEntity::getCompanyName).orElse(null));
+
+        jobVacancyRepository.save(vacancy);
+
+        try {
+            List<Subscription> subscribers = subscriptionRepository.findByCategory(vacancy.getCategory());
+            for (Subscription sub : subscribers) {
+                Long seekerUserId = sub.getUserId();
+                String notificationText = getText(lang,
+                        String.format("🆕 **Yangi ish!**\n\n📌 %s\n📂 %s\n💰 %s",
+                                vacancy.getTitle(), vacancy.getCategory(), vacancy.getSalary()),
+                        String.format("🆕 **Новая работа!**\n\n📌 %s\n📂 %s\n💰 %s",
+                                vacancy.getTitle(), vacancy.getCategory(), vacancy.getSalary()),
+                        String.format("🆕 **New job!**\n\n📌 %s\n📂 %s\n💰 %s",
+                                vacancy.getTitle(), vacancy.getCategory(), vacancy.getSalary()));
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                InlineKeyboardButton applyBtn = new InlineKeyboardButton("📩 Ariza topshirish");
+                applyBtn.setCallbackData("apply_" + vacancy.getId());
+                markup.setKeyboard(List.of(List.of(applyBtn)));
+
+                SendMessage notificationMsg = new SendMessage(seekerUserId.toString(), notificationText);
+                notificationMsg.setParseMode("Markdown");
+                notificationMsg.setReplyMarkup(markup);
+                try { telegram.execute(notificationMsg); } catch (Exception ignored) {}
+            }
+        } catch (Exception e) { log.error("Notify error", e); }
+
+        states.put(chatId, EmployerState.MAIN_MENU);
+        draftData.get(chatId).clear();
+
+        String successMsg = getText(lang,
+                String.format("🎉 **E'lon chop etildi!**\n\n📌 %s\n📁 %s",
+                        vacancy.getTitle(), vacancy.getCategory()),
+                String.format("🎉 **Вакансия опубликована!**\n\n📌 %s\n📁 %s",
+                        vacancy.getTitle(), vacancy.getCategory()),
+                String.format("🎉 **Published!**\n\n📌 %s\n📁 %s",
+                        vacancy.getTitle(), vacancy.getCategory()));
+
+        return createMessage(chatId, successMsg, getMainMenuKeyboard(lang));
+    }
+
+    // ============================================
+    // ПРОФИЛЬ
+    // ============================================
+    private SendMessage showProfile(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
+        if (profileOpt.isEmpty() || profileOpt.get().getFullName() == null) {
+            states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
+            return createMessage(chatId,
+                    getText(lang, "👤 Ism-familiya:", "👤 Имя:", "👤 Name:"),
+                    getCancelKeyboard(lang));
+        }
+
+        EmployerEntity emp = profileOpt.get();
+        String ns = getText(lang, "Ko'rsatilmagan", "Не указано", "N/A");
+        String company = emp.getCompanyName() != null && !emp.getCompanyName().isBlank() ? emp.getCompanyName() : ns;
+        String ageStr = emp.getAge() != null ? String.valueOf(emp.getAge()) : "-";
+        String passport = emp.getPassportSeriesNumber() != null ? emp.getPassportSeriesNumber() : "-";
+
+        String msg = getText(lang,
+                String.format("👤 **Profil:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, passport, company,
+                        emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
+                        emp.getLanguage() != null ? emp.getLanguage() : "uz"),
+                String.format("👤 **Профиль:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, passport, company,
+                        emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
+                        emp.getLanguage() != null ? emp.getLanguage() : "uz"),
+                String.format("👤 **Profile:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, passport, company,
+                        emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
+                        emp.getLanguage() != null ? emp.getLanguage() : "uz"));
+
+        return createMessage(chatId, msg, getProfileKeyboard(lang));
+    }
+
+    // ============================================
+    // УВЕДОМЛЕНИЕ (для TelegramCallbackService)
+    // ============================================
+    public SendMessage buildApplicationNotification(
+            Long employerChatId, Long applicationId, Long employeeChatId,
+            String vacancyTitle, String candidateName, String candidatePhone, String lang) {
+
+        String text = getText(lang,
+                String.format("🔔 **Yangi ariza!**\n\n📌 %s\n👤 %s\n📞 %s",
+                        vacancyTitle, candidateName, candidatePhone),
+                String.format("🔔 **Новый отклик!**\n\n📌 %s\n👤 %s\n📞 %s",
+                        vacancyTitle, candidateName, candidatePhone),
+                String.format("🔔 **New application!**\n\n📌 %s\n👤 %s\n📞 %s",
+                        vacancyTitle, candidateName, candidatePhone));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        InlineKeyboardButton acceptBtn = new InlineKeyboardButton();
+        acceptBtn.setText(getText(lang, "✅ Qabul", "✅ Принять", "✅ Accept"));
+        acceptBtn.setCallbackData("accept_app_" + applicationId + "_" + employeeChatId);
+
+        InlineKeyboardButton rejectBtn = new InlineKeyboardButton();
+        rejectBtn.setText(getText(lang, "❌ Rad", "❌ Отклонить", "❌ Reject"));
+        rejectBtn.setCallbackData("reject_app_" + applicationId + "_" + employeeChatId);
+
+        markup.setKeyboard(List.of(List.of(acceptBtn, rejectBtn)));
+
+        SendMessage message = new SendMessage(employerChatId.toString(), text);
+        message.setParseMode("Markdown");
+        message.setReplyMarkup(markup);
+        return message;
+    }
+
+    // ============================================
+    // ХЕЛПЕРЫ
     // ============================================
     private boolean isCancelText(String text) {
         if (text == null) return false;
@@ -2156,8 +1982,18 @@ public class EmployerHandler {
 
     private boolean isValidPhone(String text) {
         if (text == null) return false;
-        String clean = text.replaceAll("\\s", "");
-        return PHONE_PATTERN.matcher(clean).matches();
+        String clean = text.replaceAll("[\\s\\-()]", "");
+        if (clean.matches("^[0-9]{9}$")) clean = "+998" + clean;
+        if (clean.matches("^998[0-9]{9}$")) clean = "+" + clean;
+        return clean.matches("^\\+998[0-9]{9}$");
+    }
+
+    private String normalizePhone(String text) {
+        if (text == null) return null;
+        String clean = text.replaceAll("[\\s\\-()]", "");
+        if (clean.matches("^[0-9]{9}$")) return "+998" + clean;
+        if (clean.matches("^998[0-9]{9}$")) return "+" + clean;
+        return clean;
     }
 
     private boolean isValidTitle(String text) {
@@ -2186,46 +2022,35 @@ public class EmployerHandler {
 
     private boolean isGlobalButton(String text) {
         return text != null && (
-                text.equals("/start") ||
-                        text.equals("👤 Profilim") || text.equals("👤 Профиль") ||
-                        text.equals("✏️ Profilni tahrirlash") || text.equals("✏️ Редактировать профиль") ||
-                        text.equals("🏢 Kompaniya") || text.equals("🏢 Компания") ||
-                        text.equals("⚙️ Sozlamalar") || text.equals("⚙️ Настройки") ||
-                        text.equals("📢 Vakansiya yaratish") || text.equals("📢 Создать вакансию") ||
-                        text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии") ||
-                        text.equals("📩 Arizalar") || text.equals("📩 Заявки") ||
+                text.equals("/start") || text.equals("/menu") ||
+                        text.equals("👤 Profilim") || text.equals("👤 Профиль") || text.equals("👤 Profile") ||
+                        text.equals("✏️ Profilni tahrirlash") || text.equals("✏️ Редактировать профиль") || text.equals("✏️ Edit profile") ||
+                        text.equals("🏢 Kompaniya") || text.equals("🏢 Компания") || text.equals("🏢 Company") ||
+                        text.equals("⚙️ Sozlamalar") || text.equals("⚙️ Настройки") || text.equals("⚙️ Settings") ||
+                        text.equals("📢 Vakansiya yaratish") || text.equals("📢 Создать вакансию") || text.equals("📢 Create vacancy") ||
+                        text.equals("📋 Mening vakansiyalarim") || text.equals("📋 Мои вакансии") || text.equals("📋 My vacancies") ||
+                        text.equals("📩 Arizalar") || text.equals("📩 Заявки") || text.equals("📩 Applications") ||
                         text.equals("📊 Dashboard") || text.equals("📊 Дашборд") ||
-                        text.equals("💬 Chatlar") || text.equals("💬 Чаты") ||
-                        text.equals("🔍 Nomzod izlash") || text.equals("🔍 Поиск кандидатов") ||
-                        text.equals("⭐ Reytingim") || text.equals("⭐ Мой рейтинг") ||
-                        text.equals("📊 Statistika") || text.equals("📊 Статистика") ||
-                        text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") ||
-                        text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") ||
-                        text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("Asosiy menyu")
+                        text.equals("💬 Chatlar") || text.equals("💬 Чаты") || text.equals("💬 Chats") ||
+                        text.equals("🔍 Nomzod izlash") || text.equals("🔍 Поиск кандидатов") || text.equals("🔍 Search candidates") ||
+                        text.equals("⭐ Reytingim") || text.equals("⭐ Мой рейтинг") || text.equals("⭐ My rating") ||
+                        text.equals("📊 Statistika") || text.equals("📊 Статистика") || text.equals("📊 Statistics") ||
+                        text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back") ||
+                        text.equals("❌ Bekor qilish") || text.equals("❌ Отмена") || text.equals("❌ Cancel") ||
+                        text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню") || text.equals("🏠 Main menu")
         );
     }
 
     private boolean isSkip(String text) {
-        return text.equals("⏭ O'tkazib yuborish") || text.equals("⏭ Пропустить");
+        return text.equals("⏭ O'tkazib yuborish") || text.equals("⏭ Пропустить") || text.equals("⏭ Skip");
     }
 
-    private void saveLanguage(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
-        if (profileOpt.isPresent()) {
-            EmployerEntity profile = profileOpt.get();
-            profile.setLanguage(lang);
-            employerRepository.save(profile);
-        } else {
-            EmployerEntity newProfile = EmployerEntity.builder()
-                    .employerChatId(chatId)
-                    .language(lang)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-            employerRepository.save(newProfile);
+    private String getText(String lang, String uz, String ru, String en) {
+        switch (lang) {
+            case "ru": return ru;
+            case "en": return en;
+            default: return uz;
         }
-    }
-
-    private String getText(String lang, String uz, String ru) {
-        return lang.equals("ru") ? ru : uz;
     }
 
     private SendMessage createMessage(Long chatId, String text) {
@@ -2235,53 +2060,86 @@ public class EmployerHandler {
     private SendMessage createMessage(Long chatId, String text, ReplyKeyboard keyboard) {
         SendMessage message = new SendMessage(chatId.toString(), text);
         message.setParseMode("Markdown");
-        if (keyboard != null) {
-            message.setReplyMarkup(keyboard);
-        }
+        if (keyboard != null) message.setReplyMarkup(keyboard);
         return message;
     }
 
+    private SendMessage createInlineLanguageMessage(Long chatId, String prompt) {
+        SendMessage msg = new SendMessage();
+        msg.setChatId(chatId.toString());
+        msg.setText(prompt);
+        msg.setParseMode("Markdown");
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        List<InlineKeyboardButton> row = new ArrayList<>();
+        row.add(InlineKeyboardButton.builder().text("🇺🇿 O'zbek").callbackData("lang_uz").build());
+        row.add(InlineKeyboardButton.builder().text("🇷🇺 Русский").callbackData("lang_ru").build());
+        row.add(InlineKeyboardButton.builder().text("🇬🇧 English").callbackData("lang_en").build());
+
+        markup.setKeyboard(List.of(row));
+        msg.setReplyMarkup(markup);
+        return msg;
+    }
+
+    private void sendAnswerCallback(String id, String text, boolean alert) {
+        try {
+            org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery ans =
+                    new org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery();
+            ans.setCallbackQueryId(id);
+            if (text != null) {
+                ans.setText(text);
+                ans.setShowAlert(alert);
+            }
+            telegram.execute(ans);
+        } catch (Exception e) {
+            log.error("AnswerCallback error", e);
+        }
+    }
+
     // ============================================
-    // KLAVIATURA METODLARI
+    // КЛАВИАТУРЫ
     // ============================================
     private ReplyKeyboardMarkup getMainMenuKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "📊 Dashboard", "📊 Дашборд")),
-                List.of(getText(lang, "📢 Vakansiya yaratish", "📢 Создать вакансию")),
-                List.of(getText(lang, "📋 Mening vakansiyalarim", "📋 Мои вакансии")),
-                List.of(getText(lang, "📩 Arizalar", "📩 Заявки"), getText(lang, "💬 Chatlar", "💬 Чаты")),
-                List.of(getText(lang, "🔍 Nomzod izlash", "🔍 Поиск кандидатов")),
-                List.of(getText(lang, "👤 Profilim", "👤 Профиль"), getText(lang, "🏢 Kompaniya", "🏢 Компания")),
-                List.of(getText(lang, "⭐ Reytingim", "⭐ Мой рейтинг"), getText(lang, "⚙️ Sozlamalar", "⚙️ Настройки")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "📊 Dashboard", "📊 Дашборд", "📊 Dashboard")),
+                List.of(getText(lang, "📢 Vakansiya yaratish", "📢 Создать вакансию", "📢 Create vacancy")),
+                List.of(getText(lang, "📋 Mening vakansiyalarim", "📋 Мои вакансии", "📋 My vacancies")),
+                List.of(getText(lang, "📩 Arizalar", "📩 Заявки", "📩 Applications"),
+                        getText(lang, "💬 Chatlar", "💬 Чаты", "💬 Chats")),
+                List.of(getText(lang, "🔍 Nomzod izlash", "🔍 Поиск кандидатов", "🔍 Search candidates")),
+                List.of(getText(lang, "👤 Profilim", "👤 Профиль", "👤 Profile"),
+                        getText(lang, "🏢 Kompaniya", "🏢 Компания", "🏢 Company")),
+                List.of(getText(lang, "⭐ Reytingim", "⭐ Мой рейтинг", "⭐ My rating"),
+                        getText(lang, "⚙️ Sozlamalar", "⚙️ Настройки", "⚙️ Settings")),
+                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню", "🏠 Main menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getProfileKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "✏️ Profilni tahrirlash", "✏️ Редактировать профиль")),
-                List.of(getText(lang, "🏢 Kompaniya", "🏢 Компания")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "✏️ Profilni tahrirlash", "✏️ Редактировать профиль", "✏️ Edit profile")),
+                List.of(getText(lang, "🏢 Kompaniya", "🏢 Компания", "🏢 Company")),
+                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню", "🏠 Main menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getEditProfileKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "👤 Ismni tahrirlash", "👤 Изменить имя")),
-                List.of(getText(lang, "🎂 Yoshni tahrirlash", "🎂 Изменить возраст")),
-                List.of(getText(lang, "🏢 Kompaniya nomini tahrirlash", "🏢 Изменить название компании")),
-                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад"))
+                List.of(getText(lang, "👤 Ismni tahrirlash", "👤 Изменить имя", "👤 Change name")),
+                List.of(getText(lang, "🎂 Yoshni tahrirlash", "🎂 Изменить возраст", "🎂 Change age")),
+                List.of(getText(lang, "🏢 Kompaniya nomini tahrirlash", "🏢 Изменить компанию", "🏢 Change company")),
+                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад", "⬅️ Back"))
         ));
     }
 
     private ReplyKeyboardMarkup getCompanyInfoKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "📝 Kompaniya tavsifi", "📝 Описание компании")),
-                List.of(getText(lang, "📍 Manzil", "📍 Адрес")),
-                List.of(getText(lang, "🌐 Veb-sayt", "🌐 Веб-сайт")),
-                List.of(getText(lang, "👥 Xodimlar soni", "👥 Количество сотрудников")),
-                List.of(getText(lang, "🖼 Logotip", "🖼 Логотип")),
-                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад"))
+                List.of(getText(lang, "📝 Kompaniya tavsifi", "📝 Описание компании", "📝 Description")),
+                List.of(getText(lang, "📍 Manzil", "📍 Адрес", "📍 Address")),
+                List.of(getText(lang, "🌐 Veb-sayt", "🌐 Веб-сайт", "🌐 Website")),
+                List.of(getText(lang, "👥 Xodimlar soni", "👥 Сотрудники", "👥 Employees")),
+                List.of(getText(lang, "🖼 Logotip", "🖼 Логотип", "🖼 Logo")),
+                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад", "⬅️ Back"))
         ));
     }
 
@@ -2289,53 +2147,46 @@ public class EmployerHandler {
         return createReplyKeyboard(List.of(
                 List.of("1-10", "11-50"),
                 List.of("51-200", "200+"),
-                List.of(getText(lang, "❌ Bekor qilish", "❌ Отмена"))
+                List.of(getText(lang, "❌ Bekor qilish", "❌ Отмена", "❌ Cancel"))
         ));
     }
 
     private ReplyKeyboardMarkup getBlockedCandidatesKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "➕ Nomzodni bloklash", "➕ Заблокировать кандидата")),
-                List.of(getText(lang, "✅ Blokdan chiqarish", "✅ Разблокировать")),
-                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад"))
+                List.of(getText(lang, "➕ Nomzodni bloklash", "➕ Заблокировать", "➕ Block")),
+                List.of(getText(lang, "✅ Blokdan chiqarish", "✅ Разблокировать", "✅ Unblock")),
+                List.of(getText(lang, "⬅️ Orqaga", "⬅️ Назад", "⬅️ Back"))
         ));
     }
 
     private ReplyKeyboardMarkup getSettingsKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "🌐 Til", "🌐 Язык")),
-                List.of(getText(lang, "🚫 Bloklangan nomzodlar", "🚫 Заблокированные кандидаты")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
-        ));
-    }
-
-    private ReplyKeyboardMarkup getLanguageKeyboard() {
-        return createReplyKeyboard(List.of(
-                List.of("🇺🇿 O'zbek tili", "🇷🇺 Русский язык"),
-                List.of("🏠 Asosiy menyu")
+                List.of(getText(lang, "🌐 Til", "🌐 Язык", "🌐 Language")),
+                List.of(getText(lang, "🚫 Bloklangan nomzodlar", "🚫 Заблокированные", "🚫 Blocked")),
+                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню", "🏠 Main menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getCancelKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "❌ Bekor qilish", "❌ Отмена")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "❌ Bekor qilish", "❌ Отмена", "❌ Cancel")),
+                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню", "🏠 Main menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getContactKeyboard(String lang) {
-        KeyboardButton btn = new KeyboardButton(getText(lang, "📞 Raqamni yuborish", "📞 Отправить номер"));
+        KeyboardButton btn = new KeyboardButton(getText(lang, "📞 Raqamni yuborish", "📞 Отправить номер", "📞 Send phone"));
         btn.setRequestContact(true);
-        KeyboardButton cancel = new KeyboardButton(getText(lang, "❌ Bekor qilish", "❌ Отмена"));
-        KeyboardButton mainMenu = new KeyboardButton(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"));
+        KeyboardButton cancel = new KeyboardButton(getText(lang, "❌ Bekor qilish", "❌ Отмена", "❌ Cancel"));
+        KeyboardButton mainMenu = new KeyboardButton(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню", "🏠 Main menu"));
 
-        ReplyKeyboardMarkup keyboardMarkup = new ReplyKeyboardMarkup();
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
         KeyboardRow row1 = new KeyboardRow(); row1.add(btn);
         KeyboardRow row2 = new KeyboardRow(); row2.add(cancel);
         KeyboardRow row3 = new KeyboardRow(); row3.add(mainMenu);
-        keyboardMarkup.setKeyboard(List.of(row1, row2, row3));
-        keyboardMarkup.setResizeKeyboard(true);
-        return keyboardMarkup;
+        markup.setKeyboard(List.of(row1, row2, row3));
+        markup.setResizeKeyboard(true);
+        return markup;
     }
 
     private InlineKeyboardMarkup getCategoryKeyboard(String lang) {
@@ -2363,12 +2214,12 @@ public class EmployerHandler {
         }
 
         InlineKeyboardButton otherBtn = new InlineKeyboardButton();
-        otherBtn.setText(lang.equals("ru") ? "➕ Другое" : "➕ Boshqa");
+        otherBtn.setText(getText(lang, "➕ Boshqa", "➕ Другое", "➕ Other"));
         otherBtn.setCallbackData("emp_cat_OTHER");
         rows.add(List.of(otherBtn));
 
         InlineKeyboardButton menuBtn = new InlineKeyboardButton();
-        menuBtn.setText(lang.equals("ru") ? "🏠 Главное меню" : "🏠 Asosiy menyu");
+        menuBtn.setText(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"));
         menuBtn.setCallbackData("emp_cat_MENU");
         rows.add(List.of(menuBtn));
 
@@ -2378,32 +2229,32 @@ public class EmployerHandler {
 
     private ReplyKeyboardMarkup getTypeKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "To'liq bandlik (Full-time)", "Полная занятость (Full-time)")),
-                List.of(getText(lang, "Qisman bandlik (Part-time)", "Частичная занятость (Part-time)")),
-                List.of(getText(lang, "Masofaviy (Remote)", "Удаленная работа (Remote)")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "To'liq bandlik", "Полная занятость", "Full-time")),
+                List.of(getText(lang, "Qisman bandlik", "Частичная занятость", "Part-time")),
+                List.of(getText(lang, "Masofaviy", "Удаленная", "Remote")),
+                List.of(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getWorkHoursKeyboard(String lang) {
         return createReplyKeyboard(List.of(
                 List.of("09:00 - 18:00", "08:00 - 17:00"),
-                List.of(getText(lang, "Moslashuvchan", "Гибкий график")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "Moslashuvchan", "Гибкий", "Flexible")),
+                List.of(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getSalaryQuickKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "Kelishiladi", "Договорная")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "Kelishiladi", "Договорная", "Negotiable")),
+                List.of(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"))
         ));
     }
 
     private ReplyKeyboardMarkup getSkipKeyboard(String lang) {
         return createReplyKeyboard(List.of(
-                List.of(getText(lang, "⏭ O'tkazib yuborish", "⏭ Пропустить")),
-                List.of(getText(lang, "🏠 Asosiy menyu", "🏠 Главное меню"))
+                List.of(getText(lang, "⏭ O'tkazib yuborish", "⏭ Пропустить", "⏭ Skip")),
+                List.of(getText(lang, "🏠 Menyu", "🏠 Меню", "🏠 Menu"))
         ));
     }
 
@@ -2420,38 +2271,30 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // ⭐️ HAR BIR VAKANSIYA UCHUN ALOHIDA XABAR
+    // МОИ ВАКАНСИИ
     // ============================================
     private SendMessage showMyVacanciesWithButtons(Long chatId, String lang) {
         List<JobVacancy> myJobs = jobVacancyRepository.findAllByEmployerChatId(chatId);
+
         if (myJobs.isEmpty()) {
             return createMessage(chatId,
-                    lang.equals("ru") ? "📭 У вас нет вакансий." : "📭 Sizda vakansiyalar yo'q.",
+                    getText(lang, "📭 Vakansiyalar yo'q.", "📭 Вакансий нет.", "📭 No vacancies."),
                     getMainMenuKeyboard(lang));
         }
 
         SendMessage header = new SendMessage();
         header.setChatId(chatId.toString());
         header.setParseMode("Markdown");
-        header.setText(lang.equals("ru")
-                ? "📋 **Ваши вакансии:**\n\nJami: *" + myJobs.size() + " ta*"
-                : "📋 **Sizning vakansiyalaringiz:**\n\nJami: *" + myJobs.size() + " ta*");
-        try {
-            telegram.execute(header);
-        } catch (Exception e) {
-            log.error("❌ Header yuborishda xatolik", e);
-        }
+        header.setText(getText(lang,
+                "📋 **Vakansiyalar:** Jami " + myJobs.size(),
+                "📋 **Вакансии:** Всего " + myJobs.size(),
+                "📋 **Vacancies:** Total " + myJobs.size()));
+        try { telegram.execute(header); } catch (Exception e) { log.error("Header error", e); }
 
         for (int i = 0; i < myJobs.size(); i++) {
-            JobVacancy job = myJobs.get(i);
-            SendMessage card = buildVacancyCard(chatId, job, i + 1, lang);
-            try {
-                telegram.execute(card);
-            } catch (Exception e) {
-                log.error("❌ Karta yuborishda xatolik", e);
-            }
+            SendMessage card = buildVacancyCard(chatId, myJobs.get(i), i + 1, lang);
+            try { telegram.execute(card); } catch (Exception e) { log.error("Card error", e); }
         }
-
         return null;
     }
 
@@ -2459,39 +2302,26 @@ public class EmployerHandler {
         boolean isActive = job.getIsActive() == null || job.getIsActive();
         boolean isFilled = "FILLED".equals(job.getVacancyStatus());
 
-        String statusEmoji;
-        String statusText;
+        String emoji, statusText;
         if (isFilled) {
-            statusEmoji = "🟣";
-            statusText = lang.equals("ru") ? "Заполнено" : "To'ldirildi";
+            emoji = "🟣";
+            statusText = getText(lang, "To'ldirildi", "Заполнено", "Filled");
         } else if (isActive) {
-            statusEmoji = "🟢";
-            statusText = lang.equals("ru") ? "Активна" : "Faol";
+            emoji = "🟢";
+            statusText = getText(lang, "Faol", "Активна", "Active");
         } else {
-            statusEmoji = "🔴";
-            statusText = lang.equals("ru") ? "В архиве" : "Arxivda";
+            emoji = "🔴";
+            statusText = getText(lang, "Arxiv", "Архив", "Archived");
         }
 
         String jobTitle = job.getTitle() != null ? job.getTitle() : "Nomsiz";
         String salary = job.getSalary() != null ? job.getSalary() : "Kelishiladi";
 
         StringBuilder sb = new StringBuilder();
-        sb.append("╔══════════════════════════╗\n");
-        sb.append("║ ").append(index).append("️⃣ **").append(jobTitle).append("**\n");
-        sb.append("╠══════════════════════════╣\n");
-        sb.append("║ 💰 **").append(salary).append("**\n");
-        sb.append("║ ").append(statusEmoji).append(" ").append(statusText).append("\n");
-
-        if (job.getCategory() != null && !job.getCategory().isBlank()) {
-            sb.append("║ 📁 ").append(job.getCategory()).append("\n");
-        }
-        if (job.getType() != null && !job.getType().isBlank()) {
-            sb.append("║ ⏰ ").append(job.getType()).append("\n");
-        }
-        if (job.getWorkHours() != null && !job.getWorkHours().isBlank()) {
-            sb.append("║ ⌛ ").append(job.getWorkHours()).append("\n");
-        }
-        sb.append("╚══════════════════════════╝");
+        sb.append(index).append("️⃣ **").append(jobTitle).append("**\n");
+        sb.append("💰 ").append(salary).append("\n");
+        sb.append(emoji).append(" ").append(statusText).append("\n");
+        if (job.getCategory() != null) sb.append("📁 ").append(job.getCategory()).append("\n");
 
         SendMessage message = new SendMessage(chatId.toString(), sb.toString());
         message.setParseMode("Markdown");
@@ -2500,40 +2330,35 @@ public class EmployerHandler {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         List<InlineKeyboardButton> row1 = new ArrayList<>();
-
         InlineKeyboardButton editBtn = new InlineKeyboardButton();
-        editBtn.setText(lang.equals("ru") ? "✏️ Изменить" : "✏️ Tahrirlash");
+        editBtn.setText(getText(lang, "✏️ Tahrirlash", "✏️ Изменить", "✏️ Edit"));
         editBtn.setCallbackData("vac_edit_" + job.getId());
         row1.add(editBtn);
 
         InlineKeyboardButton toggleBtn = new InlineKeyboardButton();
         toggleBtn.setText(isActive
-                ? (lang.equals("ru") ? "🔴 В архив" : "🔴 Arxivlash")
-                : (lang.equals("ru") ? "🟢 Активировать" : "🟢 Faollashtirish"));
+                ? getText(lang, "🔴 Arxiv", "🔴 Архив", "🔴 Archive")
+                : getText(lang, "🟢 Faol", "🟢 Активировать", "🟢 Activate"));
         toggleBtn.setCallbackData("vac_toggle_" + job.getId());
         row1.add(toggleBtn);
-
         rows.add(row1);
 
         List<InlineKeyboardButton> row2 = new ArrayList<>();
-
         InlineKeyboardButton filledBtn = new InlineKeyboardButton();
         filledBtn.setText(isFilled
-                ? (lang.equals("ru") ? "🟢 Вернуть" : "🟢 Faolga")
-                : (lang.equals("ru") ? "✅ Заполнено" : "✅ To'ldirildi"));
+                ? getText(lang, "🟢 Faol", "🟢 Вернуть", "🟢 Restore")
+                : getText(lang, "✅ To'ldirildi", "✅ Заполнено", "✅ Filled"));
         filledBtn.setCallbackData("vac_filled_" + job.getId());
         row2.add(filledBtn);
 
         InlineKeyboardButton deleteBtn = new InlineKeyboardButton();
-        deleteBtn.setText(lang.equals("ru") ? "🗑 Удалить" : "🗑 O'chirish");
+        deleteBtn.setText(getText(lang, "🗑 O'chirish", "🗑 Удалить", "🗑 Delete"));
         deleteBtn.setCallbackData("vac_delete_" + job.getId());
         row2.add(deleteBtn);
-
         rows.add(row2);
 
         markup.setKeyboard(rows);
         message.setReplyMarkup(markup);
-
         return message;
     }
 
@@ -2542,22 +2367,22 @@ public class EmployerHandler {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         InlineKeyboardButton titleBtn = new InlineKeyboardButton();
-        titleBtn.setText(lang.equals("ru") ? "📝 Название" : "📝 Sarlavha");
+        titleBtn.setText(getText(lang, "📝 Sarlavha", "📝 Название", "📝 Title"));
         titleBtn.setCallbackData("vac_edit_field_title_" + vacancyId);
         rows.add(List.of(titleBtn));
 
         InlineKeyboardButton salaryBtn = new InlineKeyboardButton();
-        salaryBtn.setText(lang.equals("ru") ? "💰 Зарплата" : "💰 Maosh");
+        salaryBtn.setText(getText(lang, "💰 Maosh", "💰 Зарплата", "💰 Salary"));
         salaryBtn.setCallbackData("vac_edit_field_salary_" + vacancyId);
         rows.add(List.of(salaryBtn));
 
         InlineKeyboardButton reqBtn = new InlineKeyboardButton();
-        reqBtn.setText(lang.equals("ru") ? "📋 Требования" : "📋 Talablar");
+        reqBtn.setText(getText(lang, "📋 Talablar", "📋 Требования", "📋 Requirements"));
         reqBtn.setCallbackData("vac_edit_field_requirements_" + vacancyId);
         rows.add(List.of(reqBtn));
 
         InlineKeyboardButton hoursBtn = new InlineKeyboardButton();
-        hoursBtn.setText(lang.equals("ru") ? "⏰ Часы работы" : "⏰ Ish vaqti");
+        hoursBtn.setText(getText(lang, "⏰ Ish vaqti", "⏰ Часы", "⏰ Hours"));
         hoursBtn.setCallbackData("vac_edit_field_workHours_" + vacancyId);
         rows.add(List.of(hoursBtn));
 
@@ -2567,176 +2392,16 @@ public class EmployerHandler {
 
     private InlineKeyboardMarkup buildDeleteConfirmKeyboard(Long vacancyId, String lang) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
         InlineKeyboardButton confirmBtn = new InlineKeyboardButton();
-        confirmBtn.setText(lang.equals("ru") ? "✅ Да, удалить" : "✅ Ha, o'chirish");
+        confirmBtn.setText(getText(lang, "✅ Ha", "✅ Да", "✅ Yes"));
         confirmBtn.setCallbackData("vac_delete_confirm_" + vacancyId);
 
         InlineKeyboardButton cancelBtn = new InlineKeyboardButton();
-        cancelBtn.setText(lang.equals("ru") ? "❌ Отмена" : "❌ Bekor qilish");
+        cancelBtn.setText(getText(lang, "❌ Bekor", "❌ Отмена", "❌ Cancel"));
         cancelBtn.setCallbackData("vac_delete_cancel");
 
-        rows.add(List.of(confirmBtn, cancelBtn));
-        markup.setKeyboard(rows);
+        markup.setKeyboard(List.of(List.of(confirmBtn, cancelBtn)));
         return markup;
-    }
-
-    // ============================================
-    // VAKANSIYA TAHRIRLASH
-    // ============================================
-    private SendMessage handleEditVacancyField(Long chatId, String text, String field, String lang,
-                                               String uzError, String ruError) {
-        if (text == null || text.isBlank()) {
-            return createMessage(chatId,
-                    getText(lang, "⚠️ " + uzError, "⚠️ " + ruError),
-                    getCancelKeyboard(lang));
-        }
-
-        String vacancyIdStr = draftData.get(chatId).get("edit_vacancy_id");
-        if (vacancyIdStr == null) {
-            states.put(chatId, EmployerState.MAIN_MENU);
-            return createMessage(chatId,
-                    getText(lang, "❌ Xatolik! Qaytadan urinib ko'ring.", "❌ Ошибка! Попробуйте снова."),
-                    getMainMenuKeyboard(lang));
-        }
-
-        Long vacancyId = Long.parseLong(vacancyIdStr);
-        Optional<JobVacancy> vacOpt = jobVacancyRepository.findByIdAndEmployerChatId(vacancyId, chatId);
-        if (vacOpt.isEmpty()) {
-            states.put(chatId, EmployerState.MAIN_MENU);
-            return createMessage(chatId,
-                    getText(lang, "❌ Vakansiya topilmadi!", "❌ Вакансия не найдена!"),
-                    getMainMenuKeyboard(lang));
-        }
-
-        JobVacancy vacancy = vacOpt.get();
-        switch (field) {
-            case "title" -> vacancy.setTitle(text);
-            case "salary" -> vacancy.setSalary(text);
-            case "requirements" -> vacancy.setRequirements(text);
-            case "workHours" -> vacancy.setWorkHours(text);
-        }
-        jobVacancyRepository.save(vacancy);
-
-        states.put(chatId, EmployerState.MAIN_MENU);
-        draftData.get(chatId).clear();
-
-        return createMessage(chatId,
-                getText(lang, "✅ Vakansiya yangilandi!", "✅ Вакансия обновлена!"),
-                getMainMenuKeyboard(lang));
-    }
-
-    // ============================================
-    // PROFIL
-    // ============================================
-    private SendMessage showProfile(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
-        if (profileOpt.isEmpty() || profileOpt.get().getFullName() == null || profileOpt.get().getFullName().toLowerCase().contains("employer")) {
-            states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-            return createMessage(chatId,
-                    getText(lang, "Ism va familiyangizni kiriting:", "Введите имя и фамилию:"),
-                    getCancelKeyboard(lang));
-        }
-
-        EmployerEntity employer = profileOpt.get();
-        String rating = "5.0 ⭐";
-        String company = employer.getCompanyName() != null && !employer.getCompanyName().isBlank()
-                ? employer.getCompanyName()
-                : (lang.equals("ru") ? "Не указано" : "Ko'rsatilmagan");
-        String ageStr = employer.getAge() != null ? String.valueOf(employer.getAge()) : "-";
-        String passport = employer.getPassportSeriesNumber() != null ? employer.getPassportSeriesNumber() : "-";
-
-        String msg;
-        if (lang.equals("ru")) {
-            msg = String.format("""
-                    👤 **Ваш профиль:**
-                    
-                    🆔 **Telegram ID:** %d
-                    👤 **ФИО:** %s
-                    🎂 **Возраст:** %s
-                    🪪 **Паспорт:** %s
-                    🏢 **Компания:** %s
-                    📞 **Телефон:** %s
-                    🌐 **Язык:** %s
-                    ⭐ **Рейтинг:** %s
-                    📝 **Статус:** Активный работодатель
-                    """,
-                    chatId, employer.getFullName(), ageStr, passport, company,
-                    employer.getPhoneNumber() != null ? employer.getPhoneNumber() : "Не указано",
-                    employer.getLanguage() != null ? employer.getLanguage() : "uz", rating);
-        } else {
-            msg = String.format("""
-                    👤 **Sizning profilingiz:**
-                    
-                    🆔 **Telegram ID:** %d
-                    👤 **F.I.O:** %s
-                    🎂 **Yosh:** %s
-                    🪪 **Pasport:** %s
-                    🏢 **Kompaniya:** %s
-                    📞 **Telefon:** %s
-                    🌐 **Til:** %s
-                    ⭐ **Reyting:** %s
-                    📝 **Holat:** Faol ish beruvchi
-                    """,
-                    chatId, employer.getFullName(), ageStr, passport, company,
-                    employer.getPhoneNumber() != null ? employer.getPhoneNumber() : "Ko'rsatilmagan",
-                    employer.getLanguage() != null ? employer.getLanguage() : "uz", rating);
-        }
-
-        return createMessage(chatId, msg, getProfileKeyboard(lang));
-    }
-
-    // ============================================
-    // ARIZA BILDIRISHNOMASI
-    // ============================================
-    public SendMessage buildApplicationNotification(
-            Long employerChatId,
-            Long applicationId,
-            Long employeeChatId,
-            String vacancyTitle,
-            String candidateName,
-            String candidatePhone,
-            String lang) {
-
-        String text = lang.equals("ru") ?
-                String.format("🔔 **Новый отклик!**\n\n📌 **Вакансия:** %s\n👤 **Кандидат:** %s\n📞 **Тел:** %s",
-                        vacancyTitle, candidateName, candidatePhone) :
-                String.format("🔔 **Yangi ariza!**\n\n📌 **Vakansiya:** %s\n👤 **Nomzod:** %s\n📞 **Tel:** %s",
-                        vacancyTitle, candidateName, candidatePhone);
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-
-        InlineKeyboardButton acceptBtn = new InlineKeyboardButton();
-        acceptBtn.setText(lang.equals("ru") ? "✅ Принять" : "✅ Qabul qilish");
-        acceptBtn.setCallbackData("accept_app_" + applicationId + "_" + employeeChatId);
-
-        InlineKeyboardButton rejectBtn = new InlineKeyboardButton();
-        rejectBtn.setText(lang.equals("ru") ? "❌ Отклонить" : "❌ Rad etish");
-        rejectBtn.setCallbackData("reject_app_" + applicationId + "_" + employeeChatId);
-
-        rows.add(List.of(acceptBtn, rejectBtn));
-        markup.setKeyboard(rows);
-
-        SendMessage message = new SendMessage(employerChatId.toString(), text);
-        message.setParseMode("Markdown");
-        message.setReplyMarkup(markup);
-
-        return message;
-    }
-
-    private void sendAnswerCallback(String callbackQueryId, String text, boolean showAlert) {
-        try {
-            org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery answer =
-                    new org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery();
-            answer.setCallbackQueryId(callbackQueryId);
-            if (text != null) {
-                answer.setText(text);
-                answer.setShowAlert(showAlert);
-            }
-            telegram.execute(answer);
-        } catch (Exception e) {
-            log.error("❌ AnswerCallback error", e);
-        }
     }
 }
