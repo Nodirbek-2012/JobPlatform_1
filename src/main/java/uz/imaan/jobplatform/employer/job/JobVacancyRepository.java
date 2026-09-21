@@ -32,4 +32,10 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
             "LOWER(j.category) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
             "LOWER(j.companyName) LIKE LOWER(CONCAT('%', :query, '%')))")
     List<JobVacancy> searchByKeyword(@Param("query") String query);
+
+    long countByVacancyStatus(String filled);
+
+    long countByEmployerChatId(Long employerChatId);
+
+    long countByIsActiveTrue();
 }

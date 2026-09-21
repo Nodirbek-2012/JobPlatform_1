@@ -54,7 +54,7 @@ public class Telegram extends TelegramLongPollingBot {
     private AdminService adminService;
 
     private final Map<Long, Boolean> adminMode = new ConcurrentHashMap<>();
-    // ====================================
+    // ======================================
 
     @Autowired
     public Telegram(
@@ -83,12 +83,10 @@ public class Telegram extends TelegramLongPollingBot {
         if (update.hasCallbackQuery()) {
             log.info("📩 Callback keldi: {}", update.getCallbackQuery().getData());
 
-            // Админские callback-и
             if (handleAdminCallback(update.getCallbackQuery())) {
                 return;
             }
 
-            // Остальные — в ваш сервис
             telegramCallbackService.processCallback(update.getCallbackQuery(), this);
             return;
         }
@@ -104,14 +102,10 @@ public class Telegram extends TelegramLongPollingBot {
 
         log.info("📩 Xabar: chatId={}, text={}", chatId, text);
 
-        // Админ-команды — перехватываем ДО всей остальной логики
         if (handleAdminCommand(chatId, text)) {
             return;
         }
 
-        // ============================================
-        // ВАША ЛОГИКА — не тронута
-        // ============================================
         if (text.equals("/start") || text.equals("🔄 Rolni o'zgartirish")) {
             userRoles.put(chatId, UserRole.NONE);
             sendRoleSelectionMenu(chatId, "Xush kelibsiz! Rolingizni tanlang:");
@@ -119,7 +113,7 @@ public class Telegram extends TelegramLongPollingBot {
         }
 
         if (text.equals("/language") || text.equals("🌐 Til") || text.equals("🌐 Язык") || text.equals("🌐 Language")) {
-            sendLanguageSelectionMenu(chatId);
+            sendLanguageMenuAdmin(chatId);
             return;
         }
 
@@ -146,17 +140,13 @@ public class Telegram extends TelegramLongPollingBot {
     // ============ АДМИН-ЧАСТЬ =======================
     // ================================================
 
-    /**
-     * @return true — если команда обработана, дальше идти не надо
-     */
     private boolean handleAdminCommand(long chatId, String text) {
         if (text == null || text.isBlank()) return false;
 
         String command = text.split("\\s+")[0].toLowerCase();
 
-        // ---- /admin — вход ----
         if ("/admin".equals(command)) {
-            log.info("🎯 /admin detected for chatId={}", chatId);
+            log.info("🎯 Команда /admin от chatId={}", chatId);
 
             boolean isAdmin;
             try {
@@ -168,25 +158,24 @@ public class Telegram extends TelegramLongPollingBot {
             }
 
             if (!isAdmin) {
-                sendMessageSafe(chatId, "❌ У вас нет прав администратора.");
+                log.warn("🚫 Отказ: chatId={} НЕ админ. Ответ отправлен.", chatId);
+                sendMessageSafe(chatId, "❌ У вас нет прав администратора.\nВаш ID: " + chatId);
                 return true;
             }
 
+            log.info("✅ Доступ разрешён для chatId={}", chatId);
             adminMode.put(chatId, true);
             sendAdminMenu(chatId);
             return true;
         }
 
-        // ---- /exit_admin — выход ----
         if ("/exit_admin".equals(command)) {
             adminMode.put(chatId, false);
             sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
             return true;
         }
 
-        // ---- Остальные админ-команды — только в админ-режиме ----
         if (!isInAdminMode(chatId)) return false;
-
 
         switch (command) {
             case "/info" -> { handleInfoCommand(chatId, text); return true; }
@@ -195,11 +184,12 @@ public class Telegram extends TelegramLongPollingBot {
             case "/addadmin" -> { handleAddAdminCommand(chatId, text); return true; }
             case "/start" -> {
                 adminMode.put(chatId, false);
-                return false; // пусть обработается ниже как обычный /start
+                return false;
             }
             default -> { return false; }
         }
     }
+
     public void sendWorkersPage(long chatId, int page) {
         try {
             Object[] data = adminService.getWorkersListPageData(page);
@@ -214,7 +204,6 @@ public class Telegram extends TelegramLongPollingBot {
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-            // ===== 1) Кнопки-номера для каждого пользователя =====
             if (!idsOnPage.isEmpty()) {
                 List<InlineKeyboardButton> numbersRow = new ArrayList<>();
                 for (int i = 0; i < idsOnPage.size(); i++) {
@@ -224,7 +213,6 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(numbersRow);
             }
 
-            // ===== 2) Пагинация =====
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
                 if (page > 0) navRow.add(button("⬅️", "workers_page_" + (page - 1)));
@@ -233,7 +221,6 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            // ===== 3) Назад в админ-меню =====
             rows.add(List.of(
                     button("⬅️ Назад в админ-меню", "admin_refresh")
             ));
@@ -243,6 +230,7 @@ public class Telegram extends TelegramLongPollingBot {
             SendMessage message = SendMessage.builder()
                     .chatId(String.valueOf(chatId))
                     .text(content)
+                    .parseMode("HTML")
                     .replyMarkup(markup)
                     .build();
 
@@ -268,7 +256,6 @@ public class Telegram extends TelegramLongPollingBot {
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-            // ===== 1) Кнопки-номера для каждого работодателя =====
             if (!idsOnPage.isEmpty()) {
                 List<InlineKeyboardButton> numbersRow = new ArrayList<>();
                 for (int i = 0; i < idsOnPage.size(); i++) {
@@ -278,7 +265,6 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(numbersRow);
             }
 
-            // ===== 2) Пагинация =====
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
                 if (page > 0) navRow.add(button("⬅️", "employers_page_" + (page - 1)));
@@ -287,7 +273,6 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            // ===== 3) Назад в админ-меню =====
             rows.add(List.of(
                     button("⬅️ Назад в админ-меню", "admin_refresh")
             ));
@@ -297,6 +282,7 @@ public class Telegram extends TelegramLongPollingBot {
             SendMessage message = SendMessage.builder()
                     .chatId(String.valueOf(chatId))
                     .text(content)
+                    .parseMode("HTML")
                     .replyMarkup(markup)
                     .build();
 
@@ -336,6 +322,7 @@ public class Telegram extends TelegramLongPollingBot {
             }
             return true;
         }
+
         // ===== Детали рабочего =====
         if (data.startsWith("worker_detail_")) {
             try {
@@ -350,6 +337,7 @@ public class Telegram extends TelegramLongPollingBot {
                 SendMessage message = SendMessage.builder()
                         .chatId(String.valueOf(chatId))
                         .text(details)
+                        .parseMode("HTML")  // <-- ГЛАВНОЕ ИСПРАВЛЕНИЕ
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
@@ -359,7 +347,7 @@ public class Telegram extends TelegramLongPollingBot {
             return true;
         }
 
-// ===== Детали работодателя =====
+        // ===== Детали работодателя =====
         if (data.startsWith("employer_detail_")) {
             try {
                 Long employerId = Long.parseLong(data.substring("employer_detail_".length()));
@@ -373,6 +361,7 @@ public class Telegram extends TelegramLongPollingBot {
                 SendMessage message = SendMessage.builder()
                         .chatId(String.valueOf(chatId))
                         .text(details)
+                        .parseMode("HTML")  // <-- ИСПРАВЛЕНО
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
@@ -415,8 +404,6 @@ public class Telegram extends TelegramLongPollingBot {
     private boolean isInAdminMode(long chatId) {
         return Boolean.TRUE.equals(adminMode.getOrDefault(chatId, false));
     }
-
-    // ============ ОТПРАВКА АДМИН-МЕНЮ (БЕЗ MARKDOWN) ============
 
     public void sendAdminMenu(long chatId) {
         try {
@@ -532,6 +519,7 @@ public class Telegram extends TelegramLongPollingBot {
             sendMessageSafe(chatId, "⚠️ Ошибка при открытии админ-меню: " + e.getMessage());
         }
     }
+
     private void sendCategoryStats(long chatId) {
         try {
             AdminStatsDto stats = adminService.getDetailedStats();
@@ -539,12 +527,10 @@ public class Telegram extends TelegramLongPollingBot {
             StringBuilder sb = new StringBuilder();
             sb.append("📂 СТАТИСТИКА ПО КАТЕГОРИЯМ\n\n");
 
-            // ===== ОБЩАЯ ИНФОРМАЦИЯ =====
             sb.append("Всего категорий: ").append(stats.getTotalCategories()).append("\n");
             sb.append("Вакансий: ").append(stats.getTotalVacancies()).append("\n");
             sb.append("Соискателей: ").append(stats.getTotalWorkers()).append("\n\n");
 
-            // ===== ВАКАНСИИ ПО КАТЕГОРИЯМ =====
             Map<String, Long> vacByCat = stats.getVacanciesByCategory();
             if (vacByCat != null && !vacByCat.isEmpty()) {
                 sb.append("💼 ЧТО ПУБЛИКУЮТ РАБОТОДАТЕЛИ:\n");
@@ -558,7 +544,6 @@ public class Telegram extends TelegramLongPollingBot {
                 sb.append("💼 Вакансий по категориям нет.\n\n");
             }
 
-            // ===== СОИСКАТЕЛИ ПО КАТЕГОРИЯМ =====
             Map<String, Long> seekersByCat = stats.getSeekersByCategory();
             if (seekersByCat != null && !seekersByCat.isEmpty()) {
                 sb.append("👷 ЧТО ВЫБИРАЮТ СОИСКАТЕЛИ:\n");
@@ -572,13 +557,11 @@ public class Telegram extends TelegramLongPollingBot {
                 sb.append("👷 Соискателей по категориям нет.\n\n");
             }
 
-            // ===== ТОП-3 ПОПУЛЯРНЫХ =====
             sb.append("🏆 ТОП-3 САМЫЕ ПОПУЛЯРНЫЕ КАТЕГОРИИ:\n");
 
-            // Объединяем данные: соискатели + вакансии
             Map<String, Long> combined = new HashMap<>();
             if (seekersByCat != null) {
-                seekersByCat.forEach((k, v) -> combined.merge(k, v * 2, Long::sum)); // соискатели весят x2
+                seekersByCat.forEach((k, v) -> combined.merge(k, v * 2, Long::sum));
             }
             if (vacByCat != null) {
                 vacByCat.forEach((k, v) -> combined.merge(k, v, Long::sum));
@@ -596,7 +579,6 @@ public class Telegram extends TelegramLongPollingBot {
             }
             sb.append("\n");
 
-            // ===== ПОДПИСКИ ПО КАТЕГОРИЯМ =====
             Map<String, Long> subsByCat = stats.getSubscriptionsByCategory();
             if (subsByCat != null && !subsByCat.isEmpty()) {
                 sb.append("📢 ПОДПИСКИ НА КАТЕГОРИИ:\n");
@@ -638,8 +620,6 @@ public class Telegram extends TelegramLongPollingBot {
                 return;
             }
             Long targetTgId = Long.parseLong(parts[1].trim());
-
-            // Отправляем ОДНО длинное сообщение (без пагинации)
             sendMessageSafe(chatId, adminService.getUserInfoByTgId(targetTgId));
 
         } catch (NumberFormatException e) {
@@ -728,11 +708,11 @@ public class Telegram extends TelegramLongPollingBot {
                 .build());
     }
 
-    // ============ БЕЗОПАСНАЯ ОТПРАВКА СООБЩЕНИЯ ============
+    // ============ БЕЗОПАСНАЯ ОТПРАВКА ============
 
     /**
-     * Отправляет сообщение БЕЗ parseMode, чтобы Telegram не падал
-     * на спецсимволах Markdown.
+     * Отправляет сообщение БЕЗ parseMode (безопасно для любых спецсимволов).
+     * Используется для сообщений, где нет разметки.
      */
     public void sendMessageSafe(long chatId, String text) {
         try {
@@ -746,12 +726,8 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ================================================
-    // ============ КОНЕЦ АДМИН-ЧАСТИ =================
+    // PUBLIC METODLAR
     // ================================================
-
-    // ============================================
-    // PUBLIC METODLAR (TelegramCallbackService chaqiradi)
-    // ============================================
     public void executeMessage(SendMessage message) {
         try {
             execute(message);
@@ -791,7 +767,7 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ============================================
-    // ВАШИ УТИЛИТЫ — НЕ ТРОНУТЫ
+    // ВАШИ УТИЛИТЫ
     // ============================================
     private void sendRoleSelectionMenu(Long chatId, String text) {
         SendMessage message = new SendMessage(chatId.toString(), text);
@@ -836,17 +812,14 @@ public class Telegram extends TelegramLongPollingBot {
         return markup;
     }
 
-    // ============================================
-    // ХЕЛПЕР
-    // ============================================
-    public void sendMessage(long chatId, String text) {
-        sendMessageSafe(chatId, text);
-    }
     /**
-     * Показывает страницу информации о пользователе.
-     * @param chatId   ID админа, куда отправить
-     * @param tgId     ID пользователя, о котором инфо
-     * @param page     номер страницы (0-based)
+     * Отправляет сообщение с HTML-разметкой.
      */
-
+    public void sendMessage(long chatId, String text) {
+        executeMessage(SendMessage.builder()
+                .chatId(chatId)
+                .text(text)
+                .parseMode("HTML")
+                .build());
+    }
 }

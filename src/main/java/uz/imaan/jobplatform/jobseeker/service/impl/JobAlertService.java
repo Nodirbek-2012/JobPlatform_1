@@ -31,7 +31,7 @@ public class JobAlertService {
     @Scheduled(fixedDelay = 300000)
     @Transactional
     public void processNewJobAlerts() {
-        List<JobVacancy> unnotifiedVacancies = jobVacancyRepository.findByNotifiedFalseOrNotifiedIsNull();
+        List<JobVacancy> unnotifiedVacancies = jobVacancyRepository.findByIsActiveTrue();
 
         if (unnotifiedVacancies.isEmpty()) {
             return;
@@ -55,7 +55,7 @@ public class JobAlertService {
 
         // Kategoriya yoki kasbi mos keluvchi nomzodlarni topish
         List<JobSeekerProfile> matchingProfiles =
-                jobSeekerProfileRepository.findByCategoryIgnoreCaseOrProfessionIgnoreCase(category, category);
+                jobSeekerProfileRepository.findByFullNameContainingIgnoreCase(category);
 
         for (JobSeekerProfile profile : matchingProfiles) {
             Long chatId = profile.getUserId();

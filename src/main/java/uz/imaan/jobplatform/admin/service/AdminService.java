@@ -96,10 +96,34 @@ public class AdminService {
     // ─────────────────────────── AUTH ───────────────────────────
 
     public boolean isAdmin(Long chatId) {
-        if (chatId == null) return false;
-        boolean inDb = adminRepository.existsByTelegramId(chatId);
+        log.info("═══════════ ПРОВЕРКА АДМИНА ═══════════");
+        log.info("📱 Мой chatId из Telegram: {}", chatId);
+
+        if (chatId == null) {
+            log.warn("❌ chatId = null → НЕ админ");
+            return false;
+        }
+
+        // 1. Проверка в БД
+        boolean inDb = false;
+        try {
+            inDb = adminRepository.existsByTelegramId(chatId);
+            log.info("🗄 Проверка БД (existsByTelegramId): {}", inDb);
+        } catch (Exception e) {
+            log.error("❌ Ошибка БД: {}", e.getMessage(), e);
+        }
+
+        // 2. Проверка в конфиге
         boolean inConfig = adminChatIds != null && adminChatIds.contains(chatId);
-        return inDb || inConfig;
+        log.info("⚙️  Список из application.yml (admin-ids): {}", adminChatIds);
+        log.info("⚙️  Проверка конфига (contains): {}", inConfig);
+
+        // 3. Итог
+        boolean result = inDb || inConfig;
+        log.info("✅ РЕЗУЛЬТАТ isAdmin = {}", result);
+        log.info("═══════════════════════════════════════");
+
+        return result;
     }
 
     // ─────────────────────────── STATS ───────────────────────────
@@ -449,23 +473,55 @@ public class AdminService {
         JobSeekerProfile w = jobSeekerProfileRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Worker not found: " + userId));
 
-        return String.format("""
-            👤 Профиль исполнителя (ID: %d)
-            📛 ФИО: %s
-            📞 Телефон: %s
-            📌 Статус: %s
-            🔒 Заблокирован: %s
-            💬 Причина: %s
-            📊 Профессия: %s | Опыт: %s | Рейтинг: %.1f ⭐""",
-                userId,
-                safe(w.getFullName(), "Не указано"),
-                safe(w.getPhoneNumber(), "Не указан"),
-                Boolean.TRUE.equals(w.getIsActive()) ? "Активен ✅" : "Заблокирован ❌",
-                Boolean.TRUE.equals(w.getIsActive()) ? "Нет" : "Да",
-                safe(w.getBlockReason(), "Нет"),
-                safe(w.getProfession(), "Не указана"),
-                safe(w.getExperience(), "Не указан"),
-                w.getRating() != null ? w.getRating() : 0.0);
+        // Формируем строку со всей доступной информацией
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("👤 <b>ПРОФИЛЬ ИСПОЛНИТЕЛЯ</b>\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+
+        // --- Основная информация ---
+        sb.append("🆔 <b>ID (System):</b> ").append(w.getUserId() != null ? w.getUserId() : "—").append("\n");
+        sb.append("📱 <b>Telegram ID:</b> ").append(w.getTelegramId() != null ? w.getTelegramId() : "—").append("\n");
+        sb.append("📛 <b>ФИО:</b> ").append(safe(w.getFullName(), "Не указано")).append("\n");
+
+        // --- Контакты и Документы ---
+        sb.append("📞 <b>Телефон:</b> ").append(safe(w.getPhoneNumber(), "Не указан")).append("\n");
+        sb.append("🪪 <b>Паспорт:</b> ").append(safe(w.getPassportNumber(), "Не указан")).append("\n");
+
+        // --- Профессиональная информация ---
+        sb.append("💼 <b>Профессия:</b> ").append(safe(w.getProfession(), "Не указана")).append("\n");
+        sb.append("📂 <b>Категория:</b> ").append(safe(w.getCategory(), "Не указана")).append("\n");
+        sb.append("🎯 <b>Желаемая работа:</b> ").append(safe(w.getPreferredJobType(), "Не указана")).append("\n");
+        sb.append("📊 <b>Опыт:</b> ").append(safe(w.getExperience(), "Не указан")).append("\n");
+        sb.append("🌐 <b>Язык:</b> ").append(safe(w.getLanguage(), "Не указан")).append("\n");
+
+        // --- Финансы и Рейтинг ---
+        sb.append("💰 <b>Баланс:</b> ").append(
+                w.getWalletBalance() != null ? w.getWalletBalance().toPlainString() + " сум" : "0 сум"
+        ).append("\n");
+        sb.append("⭐ <b>Рейтинг:</b> ").append(
+                w.getRating() != null ? String.format("%.1f", w.getRating()) : "0.0"
+        ).append(" (Отзывов: ").append(w.getReviewCount() != null ? w.getReviewCount() : 0).append(")\n");
+
+        // --- Статус и Блокировка ---
+        boolean isActive = Boolean.TRUE.equals(w.getIsActive());
+        sb.append("📌 <b>Статус:</b> ").append(isActive ? "Активен ✅" : "Заблокирован ❌").append("\n");
+        sb.append("🔒 <b>Заблокирован:</b> ").append(isActive ? "Нет" : "Да").append("\n");
+        if (!isActive) {
+            sb.append("💬 <b>Причина:</b> ").append(safe(w.getBlockReason(), "Не указана")).append("\n");
+        }
+
+        // --- Дополнительно (Ссылки) ---
+        if (w.getAvatarUrl() != null && !w.getAvatarUrl().isBlank()) {
+            sb.append("🖼 <b>Аватар:</b> <a href='").append(w.getAvatarUrl()).append("'>Ссылка</a>\n");
+        }
+        if (w.getPortfolio() != null && !w.getPortfolio().isBlank()) {
+            sb.append("🔗 <b>Портфолио:</b> <a href='").append(w.getPortfolio()).append("'>Ссылка</a>\n");
+        }
+
+        sb.append("━━━━━━━━━━━━━━━━━━━━");
+
+        return sb.toString();
     }
     /**
      * Возвращает данные одной страницы рабочих:
