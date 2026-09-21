@@ -30,7 +30,9 @@ public class JobVacancy {
     private Boolean isActive;
     private String companyName;
 
-    /** null → Faol; "FILLED" → To'ldirildi */
+    // ===== YANGI: FILLED status =====
+    // null → Faol
+    // "FILLED" → To'ldirildi
     private String vacancyStatus;
 
     @Column(name = "external_id", unique = true)

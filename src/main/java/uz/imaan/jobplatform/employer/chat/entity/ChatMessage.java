@@ -5,7 +5,7 @@ import lombok.*;
 
 import java.time.LocalDateTime;
 
-@Entity(name = "EmployerChatMessage")   // ← ДОБАВЬ name
+@Entity
 @Table(name = "chat_messages")
 @Getter
 @Setter

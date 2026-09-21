@@ -144,12 +144,6 @@ public class TelegramCallbackService {
                 return;
             }
 
-            // 11. Til
-            if (callbackData.startsWith("lang_")) {
-                handleLanguageSelection(callbackQuery, chatId, bot);
-                return;
-            }
-
         } catch (Exception e) {
             log.error("❌ Callback xatolik: {}", e.getMessage(), e);
         }
