@@ -34,8 +34,9 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/auth/**",
                                 "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/swagger-ui.html"
+                                "/swagger-ui.html",
+                                "/api-docs/**",     // 👈 properties dagi manzilga moslandi
+                                "/v3/api-docs/**"
                         ).permitAll()
                         // Qolgan barcha so'rovlar autentifikatsiyani talab qiladi
                         .anyRequest().authenticated()
