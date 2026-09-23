@@ -60,12 +60,15 @@ public class TelegramCallbackService {
             // 0. ISH BERUVCHI CALLBACKLARI (BARCHASI)
             // ============================================
             if (callbackData != null && (
-                    callbackData.startsWith("emp_cat_") ||
+                    callbackData.startsWith("lang_") ||
+                            callbackData.startsWith("emp_cat_") ||
                             callbackData.startsWith("emp_app_status_") ||
                             callbackData.startsWith("vac_edit_") ||
                             callbackData.startsWith("vac_delete_") ||
                             callbackData.startsWith("vac_toggle_") ||
-                            callbackData.startsWith("vac_filled_")
+                            callbackData.startsWith("vac_filled_") ||
+                            callbackData.startsWith("cand_") ||
+                            callbackData.startsWith("chat_open_")
             )) {
                 SendMessage response = employerHandler.handleCallback(callbackQuery);
                 if (response != null) bot.executeMessage(response);
