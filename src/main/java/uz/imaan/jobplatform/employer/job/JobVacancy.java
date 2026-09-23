@@ -1,6 +1,7 @@
 package uz.imaan.jobplatform.employer.job;
 
 import jakarta.persistence.*;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -28,6 +29,7 @@ public class JobVacancy {
     private String salary;
     private String workHours;
     private Integer workerCount;
+    @Size(max = 1000, message = "Talablar 1000 ta belgidan oshmasligi kerak")
     private String requirements;
     private String phoneNumber;
     private Boolean isActive;
