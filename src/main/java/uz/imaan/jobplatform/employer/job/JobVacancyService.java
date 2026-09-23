@@ -86,7 +86,6 @@ public class JobVacancyService {
                 .companyName(entity.getCompanyName())
                 .vacancyStatus(entity.getVacancyStatus())
                 .sourceUrl(entity.getSourceUrl())
-                .createdAt(entity.getCreatedAt())
                 .build();
     }
 }

@@ -100,6 +100,7 @@ public class EmployerHandler {
                 || profileOpt.get().getFullName().isBlank();
 
         if (notRegistered) {
+
             // /start или пустое — показать выбор языка через INLINE
             if (text.equals("/start") || text.equals("/menu")
                     || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
@@ -109,13 +110,14 @@ public class EmployerHandler {
                         "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
             }
 
-            // Если ждём язык и пришёл текст (не callback)
+            // Ждём язык — пользователь должен нажать INLINE-кнопку,
+            // но если он написал что-то — повторяем выбор языка
             if (currentState == EmployerState.WAITING_FOR_LANGUAGE) {
                 return createInlineLanguageMessage(chatId,
-                        "⚠️ Iltimos, tugmalardan birini tanlang / Выберите кнопку / Please choose a button:");
+                        "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
             }
 
-            // Идём по шагам регистрации
+            // После выбора языка — идём по шагам регистрации
             return handleRegistration(chatId, text, message, lang, profileOpt);
         }
 
