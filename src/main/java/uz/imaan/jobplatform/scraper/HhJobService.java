@@ -23,31 +23,37 @@ public class HhJobService {
     private final JobVacancyRepository jobVacancyRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // ⭐️ O'zbekiston (area=2759) bo'yicha FAQAT qisman bandlik (employment=part) va smenali/moslashuvchan ishlar
-    private static final String HH_API_URL = "https://api.hh.ru/vacancies?area=2759&employment=part&per_page=50";
+    // O'zbekiston (area=2759) bo'yicha qisman bandlik
+    private static final String HH_API_URL = "https://api.hh.ru/vacancies?area=2759&employment=part&per_page=20";
 
-    // Qo'shimcha soatlik/part-time kalit so'zlari
     private static final List<String> HOURLY_KEYWORDS = List.of(
             "soat", "soatlik", "soatbay", "smena", "part-time", "talaba",
             "yarim stavka", "kunlik", "0.5", "гибкий", "смена", "подработка"
     );
 
     @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(cron = "0 30 */2 * * *") // Har 2 soatda tekshiradi
+    @Scheduled(cron = "0 30 */2 * * *")
     public void fetchHhJobs() {
-        log.info("🚀 HeadHunter (hh.uz) dan SOATLIK va PART-TIME vakansiyalarni tortish boshlandi...");
+        log.info("🚀 HeadHunter (hh.uz) dan vakansiyalarni tortish boshlandi...");
 
         try {
-            String appUserAgent = "JobPlatformBot/1.0 (support@imaan.uz)";
+            // HH API talab qiladigan standart format: DasturNomi/Versiya (kontakt_email)
+            String appUserAgent = "JobFinderApp/1.0 (jobfinderuz@gmail.com)";
 
             Connection.Response response = Jsoup.connect(HH_API_URL)
                     .ignoreContentType(true)
+                    .ignoreHttpErrors(true) // ⭐️ 403 xatosini o'qib olish uchun
                     .userAgent(appUserAgent)
                     .header("HH-User-Agent", appUserAgent)
                     .header("Accept", "application/json")
-                    .header("Accept-Language", "uz-UZ,uz;q=0.9,ru;q=0.8")
-                    .timeout(20000)
+                    .timeout(15000)
                     .execute();
+
+            if (response.statusCode() != 200) {
+                log.warn("⚠️ HH API ruxsat bermadi (Status: {}). Javob: {}",
+                        response.statusCode(), response.body());
+                return;
+            }
 
             if (response.body() == null || response.body().isBlank()) return;
 
@@ -61,7 +67,6 @@ public class HhJobService {
             for (JsonNode item : items) {
                 String hhId = "hh_" + item.get("id").asText();
 
-                // Bazada oldin saqlangan bo'lsa o'tkazib yuboramiz
                 if (jobVacancyRepository.existsByExternalId(hhId)) {
                     continue;
                 }
@@ -69,12 +74,10 @@ public class HhJobService {
                 String title = item.get("name").asText();
                 String url = item.get("alternate_url").asText();
 
-                // Ish grafigi va bandlik turini aniqlash (Masalan: Сменный график / Гибкий график)
                 String scheduleName = item.has("schedule") && item.get("schedule").has("name")
                         ? item.get("schedule").get("name").asText()
                         : "Moslashuvchan grafik";
 
-                // Tavsif snippetlarini yig'ish
                 StringBuilder desc = new StringBuilder();
                 if (item.has("snippet")) {
                     JsonNode snippet = item.get("snippet");
@@ -91,7 +94,6 @@ public class HhJobService {
                     requirements = requirements.substring(0, 297) + "...";
                 }
 
-                // ⭐️ Qo'shimcha filtr: sarlavha yoki tavsifda soatlik/part-time xususiyatini tekshirish
                 if (!isHourlyOrPartTimeJob(title, requirements, scheduleName)) {
                     continue;
                 }
@@ -101,17 +103,11 @@ public class HhJobService {
                     companyName = item.get("employer").get("name").asText() + " (hh.uz)";
                 }
 
-                // Maoshni hisoblash
-                String salary = extractSalary(item);
-
-                // Ish turini aniq ko'rsatish
-                String jobType = "Soatlik / Part-time (" + scheduleName + ")";
-
                 JobVacancy vacancy = JobVacancy.builder()
                         .title(title)
                         .category(detectCategory(title, requirements))
-                        .salary(salary)
-                        .type(jobType) // 👈 "To'liq bandlik" o'rniga aniq soatlik/part-time yoziladi
+                        .salary(extractSalary(item))
+                        .type("Soatlik / Part-time")
                         .requirements(requirements)
                         .phoneNumber("Havola orqali bog'laning")
                         .companyName(companyName)
@@ -123,13 +119,12 @@ public class HhJobService {
 
                 jobVacancyRepository.save(vacancy);
                 savedCount++;
-                log.info("✅ hh.uz [Soatlik/Part-time] vakansiya saqlandi: {}", title);
             }
 
-            log.info("🎉 hh.uz dan jami {} ta soatlik/part-time ish saqlandi.", savedCount);
+            log.info("✅ HeadHunter dan {} ta yangi e'lon saqlandi.", savedCount);
 
         } catch (Exception e) {
-            log.error("❌ hh.uz API bilan ishlashda xatolik: {}", e.getMessage());
+            log.error("❌ hh.uz bilan ishlashda xatolik: {}", e.getMessage());
         }
     }
 
@@ -161,34 +156,24 @@ public class HhJobService {
         String text = (title + " " + description).toLowerCase();
 
         if (text.contains("ofitsiant") || text.contains("ofitsant") || text.contains("barmen") ||
-                text.contains("oshpaz") || text.contains("povar") || text.contains("somsa")) {
+                text.contains("oshpaz") || text.contains("povar")) {
             return "Pazanda / Oshpaz";
         }
-        if (text.contains("dasturchi") || text.contains("developer") || text.contains("programmer") ||
-                text.contains("frontend") || text.contains("backend") || text.contains("java") ||
+        if (text.contains("dasturchi") || text.contains("developer") || text.contains("java") ||
                 text.contains("python") || text.matches(".*\\b(it)\\b.*")) {
             return "IT & Dasturlash";
         }
-        if (text.contains("haydovchi") || text.contains("shofyor") || text.contains("voditel")) {
+        if (text.contains("haydovchi") || text.contains("kuryer") || text.contains("dostavka")) {
             return "Haydovchi / Kuryer";
         }
-        if (text.contains("kuryer") || text.contains("dostavka") || text.contains("yetkazib")) {
-            return "Kuryer / Yetkazib berish";
-        }
-        if (text.contains("sotuvchi") || text.contains("kassir") || text.contains("savdo") || text.contains("operator")) {
+        if (text.contains("sotuvchi") || text.contains("kassir") || text.contains("operator")) {
             return "Savdo / Sotuvchi";
         }
-        if (text.contains("farrosh") || text.contains("tozalash") || text.contains("uborsh")) {
+        if (text.contains("farrosh") || text.contains("tozalash")) {
             return "Farrosh / Tozalash";
         }
-        if (text.contains("qorovul") || text.contains("oxrana") || text.contains("xavfsizlik")) {
-            return "Qorovul / Xavfsizlik";
-        }
-        if (text.contains("qurilish") || text.contains("usta") || text.contains("santexnik") || text.contains("montaj")) {
+        if (text.contains("qurilish") || text.contains("usta")) {
             return "Qurilish";
-        }
-        if (text.contains("o'qituvchi") || text.contains("repetitor") || text.contains("ustoz") || text.contains("tarbiyachi")) {
-            return "Ta'lim / Repetitor";
         }
 
         return "Boshqa soatlik ishlar";

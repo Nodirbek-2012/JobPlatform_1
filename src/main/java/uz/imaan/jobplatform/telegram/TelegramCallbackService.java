@@ -51,6 +51,8 @@ public class TelegramCallbackService {
     private final StateManager stateManager;
     private final JobAggregatorService jobAggregatorService;
 
+    private static final int HOURLY_PAGE_SIZE = 5;
+
     public void processCallback(CallbackQuery callbackQuery, Telegram bot) {
         String callbackData = callbackQuery.getData();
         Long chatId = callbackQuery.getMessage().getChatId();
@@ -71,8 +73,7 @@ public class TelegramCallbackService {
             // 1. ISH BERUVCHI CALLBACKLARI
             // ============================================
             if (callbackData != null && (
-                    callbackData.startsWith("lang_") ||
-                            callbackData.startsWith("emp_cat_") ||
+                    callbackData.startsWith("emp_cat_") ||
                             callbackData.startsWith("emp_app_status_") ||
                             callbackData.startsWith("vac_edit_") ||
                             callbackData.startsWith("vac_delete_") ||
@@ -97,23 +98,30 @@ public class TelegramCallbackService {
             // ============================================
             if ("hourly_jobs".equals(callbackData)) {
                 bot.sendAnswerCallback(callbackQuery.getId(), null, false);
-                sendHourlyJobs(chatId, bot);
+                sendHourlyJobsPage(chatId, 0, bot);
                 return;
             }
 
-            // 3. Saralanganlar (Toggle)
+            if (callbackData.startsWith("hourly_page_")) {
+                bot.sendAnswerCallback(callbackQuery.getId(), null, false);
+                int targetPage = Integer.parseInt(callbackData.replace("hourly_page_", ""));
+                sendHourlyJobsPage(chatId, targetPage, bot);
+                return;
+            }
+
+            // ============================================
+            // 3. SARALANGANLAR (FAVORITES)
+            // ============================================
             if (callbackData.startsWith("fav_toggle_")) {
                 handleFavoriteToggle(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 4. Saralanganlardan o'chirish
             if (callbackData.startsWith("fav_remove_")) {
                 handleFavoriteRemove(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 5. Saralanganlar sahifasi
             if (callbackData.startsWith("fav_page_")) {
                 bot.sendAnswerCallback(callbackQuery.getId(), null, false);
                 int targetPage = Integer.parseInt(callbackData.replace("fav_page_", ""));
@@ -121,25 +129,27 @@ public class TelegramCallbackService {
                 return;
             }
 
-            // 6. Vakansiyani batafsil ko'rish
+            // ============================================
+            // 4. VAKANSIYALARNI KO'RISH VA PAGINATSIYA
+            // ============================================
             if (callbackData.startsWith("view_vac_")) {
                 handleViewVacancy(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 7. Vakansiyalarni sahifalash
             if (callbackData.startsWith("vacancy_page_")) {
                 handleVacancyPagination(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 8. Kategoriya tanlash
+            // ============================================
+            // 5. KATEGORIYALAR
+            // ============================================
             if (callbackData.startsWith("category_")) {
                 handleCategoryClick(callbackQuery, chatId, bot);
                 return;
             }
 
-            // 9. Kategoriyalarga qaytish
             if ("back_to_categories".equals(callbackData)) {
                 bot.sendAnswerCallback(callbackQuery.getId(), null, false);
                 SendMessage response = new SendMessage(chatId.toString(), "📂 <b>Kategoriyani tanlang:</b>");
@@ -149,19 +159,19 @@ public class TelegramCallbackService {
                 return;
             }
 
-            // 10. Ariza topshirish (JobSeeker)
+            // ============================================
+            // 6. ARIZALAR VA REYTING
+            // ============================================
             if (callbackData.startsWith("apply_")) {
                 handleApply(callbackQuery, chatId, bot);
                 return;
             }
 
-            // 11. Qabul holati / Eski app_status_
             if (callbackData.startsWith("app_status_")) {
                 handleApplicationStatus(callbackQuery, chatId, messageId, bot);
                 return;
             }
 
-            // 12. Reyting
             if (callbackData.startsWith("rate_")) {
                 handleRating(callbackQuery, chatId, messageId, bot);
                 return;
@@ -173,26 +183,39 @@ public class TelegramCallbackService {
     }
 
     // ============================================
-    // SOATLIK ISHLAR LOGIKASI
+    // SOATLIK ISHLAR LOGIKASI (YANGILANDI)
     // ============================================
 
     public void sendHourlyJobs(Long chatId, Telegram bot) {
-        SendMessage loadingMsg = new SendMessage(chatId.toString(), "🔍 <b>Eng so'nggi soatlik va part-time ishlar saralanmoqda...</b>");
-        loadingMsg.setParseMode("HTML");
-        bot.executeMessage(loadingMsg);
+        sendHourlyJobsPage(chatId, 0, bot);
+    }
 
-        List<ScrapedJobItem> jobs = jobAggregatorService.getAllHourlyJobs();
+    public void sendHourlyJobsPage(Long chatId, int pageIndex, Telegram bot) {
+        List<ScrapedJobItem> allJobs = jobAggregatorService.getAllHourlyJobs();
 
-        if (jobs == null || jobs.isEmpty()) {
+        if (allJobs == null || allJobs.isEmpty()) {
             SendMessage emptyMsg = new SendMessage(chatId.toString(), "⚠️ <b>Hozircha yangi soatlik vakansiyalar topilmadi.</b>\nBirozdan so'ng qayta tekshirib ko'ring.");
             emptyMsg.setParseMode("HTML");
             bot.executeMessage(emptyMsg);
             return;
         }
 
-        int limit = Math.min(jobs.size(), 6);
-        for (int i = 0; i < limit; i++) {
-            ScrapedJobItem job = jobs.get(i);
+        int totalJobs = allJobs.size();
+        int totalPages = (int) Math.ceil((double) totalJobs / HOURLY_PAGE_SIZE);
+        int validPageIndex = Math.max(0, Math.min(pageIndex, totalPages - 1));
+
+        int fromIndex = validPageIndex * HOURLY_PAGE_SIZE;
+        int toIndex = Math.min(fromIndex + HOURLY_PAGE_SIZE, totalJobs);
+        List<ScrapedJobItem> pageJobs = allJobs.subList(fromIndex, toIndex);
+
+        SendMessage infoMsg = new SendMessage(chatId.toString(),
+                String.format("🔍 <b>Eng so'nggi soatlik va part-time ishlar (Sahifa %d / %d):</b>", (validPageIndex + 1), totalPages));
+        infoMsg.setParseMode("HTML");
+        bot.executeMessage(infoMsg);
+
+        for (int i = 0; i < pageJobs.size(); i++) {
+            ScrapedJobItem job = pageJobs.get(i);
+            int jobGlobalIndex = fromIndex + i + 1;
 
             String badge = switch (job.source()) {
                 case "HH.UZ" -> "🔴 HeadHunter (hh.uz)";
@@ -211,7 +234,7 @@ public class TelegramCallbackService {
                     🏷 <b>Turi:</b> %s
                     📢 <b>Manba:</b> %s
                     """,
-                    (i + 1),
+                    jobGlobalIndex,
                     escapeHtml(job.title()),
                     escapeHtml(job.company()),
                     escapeHtml(job.salary()),
@@ -223,7 +246,8 @@ public class TelegramCallbackService {
             SendMessage msg = new SendMessage(chatId.toString(), cardText);
             msg.setParseMode("HTML");
 
-            if (job.originalUrl() != null && !job.originalUrl().isBlank()) {
+            // URL to'g'ri formatdaligini tekshirish (Bot xatolik bilan yiqilmasligi uchun)
+            if (isValidUrl(job.originalUrl())) {
                 InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
                 InlineKeyboardButton linkBtn = new InlineKeyboardButton();
                 linkBtn.setText("🔗 E'lonni ko'rish / Topshirish");
@@ -234,6 +258,38 @@ public class TelegramCallbackService {
 
             bot.executeMessage(msg);
         }
+
+        // Sahifadan sahifaga o'tish tugmalari (Pagination)
+        if (totalPages > 1) {
+            SendMessage navMsg = new SendMessage(chatId.toString(), "📄 <b>Boshqa e'lonlarni ko'rish:</b>");
+            navMsg.setParseMode("HTML");
+
+            InlineKeyboardMarkup navMarkup = new InlineKeyboardMarkup();
+            List<InlineKeyboardButton> navRow = new ArrayList<>();
+
+            if (validPageIndex > 0) {
+                InlineKeyboardButton prevBtn = new InlineKeyboardButton();
+                prevBtn.setText("⬅️ Oldingilari");
+                prevBtn.setCallbackData("hourly_page_" + (validPageIndex - 1));
+                navRow.add(prevBtn);
+            }
+
+            if (validPageIndex < totalPages - 1) {
+                InlineKeyboardButton nextBtn = new InlineKeyboardButton();
+                nextBtn.setText("Keyingilari ➡️");
+                nextBtn.setCallbackData("hourly_page_" + (validPageIndex + 1));
+                navRow.add(nextBtn);
+            }
+
+            navMarkup.setKeyboard(List.of(navRow));
+            navMsg.setReplyMarkup(navMarkup);
+            bot.executeMessage(navMsg);
+        }
+    }
+
+    private boolean isValidUrl(String url) {
+        return url != null && !url.isBlank() &&
+                (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("tg://"));
     }
 
     // ============================================
@@ -750,7 +806,7 @@ public class TelegramCallbackService {
 
         boolean isExternal = vacancy != null && vacancy.getSourceUrl() != null && !vacancy.getSourceUrl().isBlank();
 
-        if (isExternal) {
+        if (isExternal && isValidUrl(vacancy.getSourceUrl())) {
             InlineKeyboardButton openUrlBtn = new InlineKeyboardButton();
             openUrlBtn.setText("🌐 E'lonni ochish va bog'lanish");
             openUrlBtn.setUrl(vacancy.getSourceUrl());
