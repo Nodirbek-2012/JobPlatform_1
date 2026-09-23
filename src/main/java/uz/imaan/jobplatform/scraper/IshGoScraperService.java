@@ -13,18 +13,29 @@ import org.springframework.stereotype.Service;
 import uz.imaan.jobplatform.employer.job.JobVacancy;
 import uz.imaan.jobplatform.employer.job.JobVacancyRepository;
 
+import java.util.List;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class IshGoScraperService {
 
     private final JobVacancyRepository jobVacancyRepository;
+
+    // IshGo sayti qidiruv sahifasi
     private static final String ISHGO_URL = "https://ishgo.uz/";
 
+    // Soatlik va smenali ishlarni aniqlash uchun kalit so'zlar
+    private static final List<String> HOURLY_KEYWORDS = List.of(
+            "soat", "soatlik", "soatbay", "kunlik", "smena", "smenali",
+            "part-time", "part time", "talaba", "yarim stavka", "0.5",
+            "смена", "подработка", "гибкий"
+    );
+
     @EventListener(ApplicationReadyEvent.class)
-    @Scheduled(cron = "0 0 */4 * * *")
+    @Scheduled(cron = "0 0 */3 * * *") // Har 3 soatda yangilab turadi
     public void scrapeIshGoJobs() {
-        log.info("🚀 IshGo.uz dan vakansiyalarni tortish boshlandi...");
+        log.info("🚀 IshGo.uz dan SOATLIK va PART-TIME vakansiyalarni tortish boshlandi...");
 
         try {
             Document doc = Jsoup.connect(ISHGO_URL)
@@ -32,8 +43,8 @@ public class IshGoScraperService {
                     .timeout(12000)
                     .get();
 
-            // IshGo saytidagi vakansiya havolalari va kartalari
             Elements cards = doc.select("a[href*='/vacancy/'], a[href*='/job/'], div[class*='vacancy'], div[class*='card']");
+            int savedCount = 0;
 
             for (Element card : cards) {
                 try {
@@ -51,36 +62,58 @@ public class IshGoScraperService {
                     String title = titleElem != null ? titleElem.text().trim() : "Vakansiya";
                     if (title.length() < 3) continue;
 
+                    // Qo'shimcha qisqa ma'lumot (agar kartada bo'lsa)
+                    Element descElem = card.selectFirst("[class*='description'], [class*='text'], p");
+                    String shortDesc = descElem != null ? descElem.text().trim() : "";
+
+                    // ⭐️ Qat'iy filtr: Soatlik yoki part-time talablariga mos kelmasa, saqlanmaydi
+                    if (!isHourlyOrPartTime(title, shortDesc)) {
+                        continue;
+                    }
+
                     Element compElem = card.selectFirst("[class*='company'], [class*='employer']");
                     String company = compElem != null ? compElem.text().trim() + " (IshGo)" : "IshGo.uz e'loni";
 
                     Element salaryElem = card.selectFirst("[class*='salary'], [class*='price']");
                     String salary = salaryElem != null ? salaryElem.text().trim() : "Kelishilgan holda";
 
+                    String requirements = !shortDesc.isBlank()
+                            ? (shortDesc.length() > 300 ? shortDesc.substring(0, 297) + "..." : shortDesc)
+                            : "To'liq ma'lumot bilan IshGo saytida tanishing.";
+
                     JobVacancy vacancy = JobVacancy.builder()
                             .title(title)
                             .category(detectCategory(title))
                             .salary(salary)
-                            .type("To'liq bandlik")
-                            .requirements("To'liq ma'lumot bilan IshGo saytida tanishing.")
+                            .type("Soatlik / Part-time") // 👈 Endi aniq part-time sifatida belgilanadi
+                            .requirements(requirements)
                             .phoneNumber("Havola orqali bog'laning")
                             .companyName(company)
                             .externalId(externalId)
                             .sourceUrl(fullUrl)
                             .isActive(true)
+                            .notified(false)
                             .build();
 
                     jobVacancyRepository.save(vacancy);
-                    log.info("✅ IshGo vakansiyasi qo'shildi: {}", title);
+                    savedCount++;
+                    log.info("✅ IshGo [Soatlik] vakansiya qo'shildi: {}", title);
 
                 } catch (Exception ex) {
                     log.debug("⚠️ IshGo kartasini tahlil qilishda eslatma: {}", ex.getMessage());
                 }
             }
 
+            log.info("🎉 IshGo dan jami {} ta soatlik/part-time ish saqlandi.", savedCount);
+
         } catch (Exception e) {
             log.warn("⚠️ IshGo.uz saytiga ulanishda ogohlantirish: {}", e.getMessage());
         }
+    }
+
+    private boolean isHourlyOrPartTime(String title, String desc) {
+        String fullText = (title + " " + desc).toLowerCase();
+        return HOURLY_KEYWORDS.stream().anyMatch(fullText::contains);
     }
 
     private String detectCategory(String text) {
@@ -115,6 +148,6 @@ public class IshGoScraperService {
             return "Ta'lim / Repetitor";
         }
 
-        return "Barcha vakansiyalar";
+        return "Boshqa soatlik ishlar";
     }
 }
