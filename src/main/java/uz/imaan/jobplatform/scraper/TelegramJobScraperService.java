@@ -22,7 +22,7 @@ public class TelegramJobScraperService {
 
     private final JobVacancyRepository jobVacancyRepository;
 
-    private static final List<String> CHANNELS = List.of("kunlik_ishlar", "talabaga_ish");
+    private static final List<String> CHANNELS = List.of("kunlik_ishlar", "talabaga_ish","toshkent_ishlar_bormi");
 
     @EventListener(ApplicationReadyEvent.class)
     @Scheduled(cron = "0 15 */2 * * *") // Har 2 soatda tekshiradi
