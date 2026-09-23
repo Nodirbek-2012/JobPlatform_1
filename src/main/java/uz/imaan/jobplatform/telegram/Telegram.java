@@ -27,6 +27,7 @@ import uz.imaan.jobplatform.admin.service.AdminService;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.JobSeekerHandler;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,7 +54,7 @@ public class Telegram extends TelegramLongPollingBot {
     private AdminService adminService;
 
     private final Map<Long, Boolean> adminMode = new ConcurrentHashMap<>();
-    // ====================================
+    // ======================================
 
     @Autowired
     public Telegram(
@@ -82,12 +83,10 @@ public class Telegram extends TelegramLongPollingBot {
         if (update.hasCallbackQuery()) {
             log.info("📩 Callback keldi: {}", update.getCallbackQuery().getData());
 
-            // Админские callback-и
             if (handleAdminCallback(update.getCallbackQuery())) {
                 return;
             }
 
-            // Остальные — в ваш сервис
             telegramCallbackService.processCallback(update.getCallbackQuery(), this);
             return;
         }
@@ -103,14 +102,10 @@ public class Telegram extends TelegramLongPollingBot {
 
         log.info("📩 Xabar: chatId={}, text={}", chatId, text);
 
-        // Админ-команды — перехватываем ДО всей остальной логики
         if (handleAdminCommand(chatId, text)) {
             return;
         }
 
-        // ============================================
-        // ВАША ЛОГИКА — не тронута
-        // ============================================
         if (text.equals("/start") || text.equals("🔄 Rolni o'zgartirish")) {
             userRoles.put(chatId, UserRole.NONE);
             sendRoleSelectionMenu(chatId, "Xush kelibsiz! Rolingizni tanlang:");
@@ -118,7 +113,7 @@ public class Telegram extends TelegramLongPollingBot {
         }
 
         if (text.equals("/language") || text.equals("🌐 Til") || text.equals("🌐 Язык") || text.equals("🌐 Language")) {
-            sendLanguageSelectionMenu(chatId);
+            sendLanguageMenuAdmin(chatId);
             return;
         }
 
@@ -145,17 +140,13 @@ public class Telegram extends TelegramLongPollingBot {
     // ============ АДМИН-ЧАСТЬ =======================
     // ================================================
 
-    /**
-     * @return true — если команда обработана, дальше идти не надо
-     */
     private boolean handleAdminCommand(long chatId, String text) {
         if (text == null || text.isBlank()) return false;
 
         String command = text.split("\\s+")[0].toLowerCase();
 
-        // ---- /admin — вход ----
         if ("/admin".equals(command)) {
-            log.info("🎯 /admin detected for chatId={}", chatId);
+            log.info("🎯 Команда /admin от chatId={}", chatId);
 
             boolean isAdmin;
             try {
@@ -167,23 +158,23 @@ public class Telegram extends TelegramLongPollingBot {
             }
 
             if (!isAdmin) {
-                sendMessageSafe(chatId, "❌ У вас нет прав администратора.");
+                log.warn("🚫 Отказ: chatId={} НЕ админ. Ответ отправлен.", chatId);
+                sendMessageSafe(chatId, "❌ У вас нет прав администратора.\nВаш ID: " + chatId);
                 return true;
             }
 
+            log.info("✅ Доступ разрешён для chatId={}", chatId);
             adminMode.put(chatId, true);
-            sendAdminMenuSafe(chatId);
+            sendAdminMenu(chatId);
             return true;
         }
 
-        // ---- /exit_admin — выход ----
         if ("/exit_admin".equals(command)) {
             adminMode.put(chatId, false);
             sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
             return true;
         }
 
-        // ---- Остальные админ-команды — только в админ-режиме ----
         if (!isInAdminMode(chatId)) return false;
 
         switch (command) {
@@ -193,9 +184,113 @@ public class Telegram extends TelegramLongPollingBot {
             case "/addadmin" -> { handleAddAdminCommand(chatId, text); return true; }
             case "/start" -> {
                 adminMode.put(chatId, false);
-                return false; // пусть обработается ниже как обычный /start
+                return false;
             }
             default -> { return false; }
+        }
+    }
+
+    public void sendWorkersPage(long chatId, int page) {
+        try {
+            Object[] data = adminService.getWorkersListPageData(page);
+            String content = (String) data[0];
+            @SuppressWarnings("unchecked")
+            List<Long> idsOnPage = (List<Long>) data[1];
+            int totalPages = (int) data[2];
+
+            if (page < 0) page = 0;
+            if (page >= totalPages) page = totalPages - 1;
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+            if (!idsOnPage.isEmpty()) {
+                List<InlineKeyboardButton> numbersRow = new ArrayList<>();
+                for (int i = 0; i < idsOnPage.size(); i++) {
+                    Long userId = idsOnPage.get(i);
+                    numbersRow.add(button(String.valueOf(i + 1), "worker_detail_" + userId));
+                }
+                rows.add(numbersRow);
+            }
+
+            if (totalPages > 1) {
+                List<InlineKeyboardButton> navRow = new ArrayList<>();
+                if (page > 0) navRow.add(button("⬅️", "workers_page_" + (page - 1)));
+                navRow.add(button((page + 1) + "/" + totalPages, "noop"));
+                if (page < totalPages - 1) navRow.add(button("➡️", "workers_page_" + (page + 1)));
+                rows.add(navRow);
+            }
+
+            rows.add(List.of(
+                    button("⬅️ Назад в админ-меню", "admin_refresh")
+            ));
+
+            markup.setKeyboard(rows);
+
+            SendMessage message = SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text(content)
+                    .parseMode("HTML")
+                    .replyMarkup(markup)
+                    .build();
+
+            executeMessage(message);
+
+        } catch (Exception e) {
+            log.error("❌ sendWorkersPage error: {}", e.getMessage(), e);
+            sendMessageSafe(chatId, "⚠️ Ошибка: " + e.getMessage());
+        }
+    }
+
+    public void sendEmployersPage(long chatId, int page) {
+        try {
+            Object[] data = adminService.getEmployersListPageData(page);
+            String content = (String) data[0];
+            @SuppressWarnings("unchecked")
+            List<Long> idsOnPage = (List<Long>) data[1];
+            int totalPages = (int) data[2];
+
+            if (page < 0) page = 0;
+            if (page >= totalPages) page = totalPages - 1;
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+            if (!idsOnPage.isEmpty()) {
+                List<InlineKeyboardButton> numbersRow = new ArrayList<>();
+                for (int i = 0; i < idsOnPage.size(); i++) {
+                    Long userId = idsOnPage.get(i);
+                    numbersRow.add(button(String.valueOf(i + 1), "employer_detail_" + userId));
+                }
+                rows.add(numbersRow);
+            }
+
+            if (totalPages > 1) {
+                List<InlineKeyboardButton> navRow = new ArrayList<>();
+                if (page > 0) navRow.add(button("⬅️", "employers_page_" + (page - 1)));
+                navRow.add(button((page + 1) + "/" + totalPages, "noop"));
+                if (page < totalPages - 1) navRow.add(button("➡️", "employers_page_" + (page + 1)));
+                rows.add(navRow);
+            }
+
+            rows.add(List.of(
+                    button("⬅️ Назад в админ-меню", "admin_refresh")
+            ));
+
+            markup.setKeyboard(rows);
+
+            SendMessage message = SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text(content)
+                    .parseMode("HTML")
+                    .replyMarkup(markup)
+                    .build();
+
+            executeMessage(message);
+
+        } catch (Exception e) {
+            log.error("❌ sendEmployersPage error: {}", e.getMessage(), e);
+            sendMessageSafe(chatId, "⚠️ Ошибка: " + e.getMessage());
         }
     }
 
@@ -206,19 +301,102 @@ public class Telegram extends TelegramLongPollingBot {
         if (data == null) return false;
         if (!isInAdminMode(chatId)) return false;
 
+        // ===== Рабочие — пагинация =====
+        if (data.startsWith("workers_page_")) {
+            try {
+                int page = Integer.parseInt(data.substring("workers_page_".length()));
+                sendWorkersPage(chatId, page);
+            } catch (Exception e) {
+                log.error("❌ workers page error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
+
+        // ===== Работодатели — пагинация =====
+        if (data.startsWith("employers_page_")) {
+            try {
+                int page = Integer.parseInt(data.substring("employers_page_".length()));
+                sendEmployersPage(chatId, page);
+            } catch (Exception e) {
+                log.error("❌ employers page error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
+
+        // ===== Детали рабочего =====
+        if (data.startsWith("worker_detail_")) {
+            try {
+                Long workerId = Long.parseLong(data.substring("worker_detail_".length()));
+                String details = adminService.getWorkerDetails(workerId);
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                markup.setKeyboard(List.of(List.of(
+                        button("⬅️ Назад к списку", "admin_workers")
+                )));
+
+                SendMessage message = SendMessage.builder()
+                        .chatId(String.valueOf(chatId))
+                        .text(details)
+                        .parseMode("HTML")  // <-- ГЛАВНОЕ ИСПРАВЛЕНИЕ
+                        .replyMarkup(markup)
+                        .build();
+                executeMessage(message);
+            } catch (Exception e) {
+                log.error("❌ worker_detail error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
+
+        // ===== Детали работодателя =====
+        if (data.startsWith("employer_detail_")) {
+            try {
+                Long employerId = Long.parseLong(data.substring("employer_detail_".length()));
+                String details = adminService.getUserInfoByTgId(employerId);
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                markup.setKeyboard(List.of(List.of(
+                        button("⬅️ Назад к списку", "admin_employers")
+                )));
+
+                SendMessage message = SendMessage.builder()
+                        .chatId(String.valueOf(chatId))
+                        .text(details)
+                        .parseMode("HTML")  // <-- ИСПРАВЛЕНО
+                        .replyMarkup(markup)
+                        .build();
+                executeMessage(message);
+            } catch (Exception e) {
+                log.error("❌ employer_detail error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
+
+        // ===== Остальные =====
         switch (data) {
-            case "admin_workers" -> { sendMessageSafe(chatId, adminService.getAllWorkersList()); return true; }
-            case "admin_employers" -> { sendMessageSafe(chatId, adminService.getFormattedEmployersList()); return true; }
-            case "admin_refresh" -> { sendAdminMenuSafe(chatId); return true; }
-            case "admin_find_by_tg_id" -> { sendMessageSafe(chatId, "🔍 Отправьте: /info 123456789"); return true; }
+            case "admin_workers" -> { sendWorkersPage(chatId, 0); return true; }
+            case "admin_employers" -> { sendEmployersPage(chatId, 0); return true; }
+            case "admin_refresh" -> { sendAdminMenu(chatId); return true; }
+            case "admin_find_by_tg_id" -> {
+                sendMessageSafe(chatId, "🔍 Отправьте: /info 123456789");
+                return true;
+            }
             case "admin_exit" -> {
                 adminMode.put(chatId, false);
                 sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
                 return true;
             }
             case "change_language" -> { sendLanguageMenuAdmin(chatId); return true; }
-            case "lang_ru" -> { sendMessageSafe(chatId, "✅ Язык изменён на Русский!"); sendAdminMenuSafe(chatId); return true; }
-            case "lang_uz" -> { sendMessageSafe(chatId, "✅ Til O'zbekchaga o'zgartirildi!"); sendAdminMenuSafe(chatId); return true; }
+            case "lang_ru" -> {
+                sendMessageSafe(chatId, "✅ Язык изменён на Русский!");
+                sendAdminMenu(chatId);
+                return true;
+            }
+            case "lang_uz" -> {
+                sendMessageSafe(chatId, "✅ Til O'zbekchaga o'zgartirildi!");
+                sendAdminMenu(chatId);
+                return true;
+            }
+            case "admin_categories" -> { sendCategoryStats(chatId); return true; }
             default -> { return false; }
         }
     }
@@ -227,24 +405,82 @@ public class Telegram extends TelegramLongPollingBot {
         return Boolean.TRUE.equals(adminMode.getOrDefault(chatId, false));
     }
 
-    // ============ ОТПРАВКА АДМИН-МЕНЮ (БЕЗ MARKDOWN) ============
-
-    public void sendAdminMenuSafe(long chatId) {
+    public void sendAdminMenu(long chatId) {
         try {
             AdminStatsDto stats = adminService.getDetailedStats();
 
-            String menuText = String.format(
-                    "⚙️ Панель администратора JobPlatform\n\n" +
-                            "📊 Статистика:\n" +
-                            " ├ 👥 Администраторов: %d\n" +
-                            " ├ 🏢 Работодателей: %d\n" +
-                            " ├ 👤 Исполнителей: %d\n" +
-                            " ├ 💼 Активных вакансий: %d\n" +
-                            " └ ✅ Завершённых смен: %d\n\n" +
-                            "Для выхода отправьте /exit_admin\n\n" +
-                            "Выберите действие:",
-                    stats.totalAdmins(), stats.totalEmployers(),
-                    stats.totalWorkers(), stats.activeJobs(), stats.completedShifts());
+            StringBuilder menuText = new StringBuilder();
+            menuText.append("⚙️ Панель администратора JobPlatform\n\n");
+
+            menuText.append("👥 ПОЛЬЗОВАТЕЛИ\n")
+                    .append(" ├ Админов: ").append(stats.getTotalAdmins()).append("\n")
+                    .append(" ├ Соискателей: ").append(stats.getTotalWorkers()).append("\n")
+                    .append(" ├ Работодателей: ").append(stats.getTotalEmployers()).append("\n")
+                    .append(" └ Всего: ").append(stats.getTotalUsers()).append("\n\n");
+
+            menuText.append("💼 ВАКАНСИИ\n")
+                    .append(" ├ Всего: ").append(stats.getTotalVacancies()).append("\n")
+                    .append(" ├ Активных: ").append(stats.getActiveJobs()).append("\n")
+                    .append(" └ Заполненных: ").append(stats.getFilledVacancies()).append("\n\n");
+
+            menuText.append("📩 ЗАЯВКИ\n")
+                    .append(" ├ Всего: ").append(stats.getTotalApplications()).append("\n")
+                    .append(" ├ В ожидании: ").append(stats.getPendingApplications()).append("\n")
+                    .append(" ├ Принято: ").append(stats.getAcceptedApplications()).append("\n")
+                    .append(" └ Отклонено: ").append(stats.getRejectedApplications()).append("\n\n");
+
+            menuText.append("💳 КАРТЫ И ФИНАНСЫ\n")
+                    .append(" ├ Карт: ").append(stats.getTotalBankCards())
+                    .append(" (активных: ").append(stats.getActiveBankCards()).append(")\n")
+                    .append(" └ Баланс: ")
+                    .append(stats.getTotalWalletBalance() != null ? stats.getTotalWalletBalance().toPlainString() : "0")
+                    .append(" сум\n\n");
+
+            menuText.append("⭐ ОТЗЫВЫ\n")
+                    .append(" ├ Всего: ").append(stats.getTotalReviews()).append("\n")
+                    .append(" └ Средний рейтинг: ")
+                    .append(String.format("%.2f", stats.getAverageRating())).append("\n\n");
+
+            menuText.append("📢 ПОДПИСКИ\n")
+                    .append(" └ Всего: ").append(stats.getTotalSubscriptions()).append("\n\n");
+
+            menuText.append("📂 КАТЕГОРИИ\n")
+                    .append(" └ Всего: ").append(stats.getTotalCategories()).append("\n\n");
+
+            Map<String, Long> vacByCat = stats.getVacanciesByCategory();
+            if (vacByCat != null && !vacByCat.isEmpty()) {
+                menuText.append("💼 ТОП-5 категорий по вакансиям:\n");
+                vacByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .limit(5)
+                        .forEach(e -> menuText.append(" ├ ")
+                                .append(e.getKey()).append(": ").append(e.getValue()).append("\n"));
+                menuText.append("\n");
+            }
+
+            Map<String, Long> seekersByCat = stats.getSeekersByCategory();
+            if (seekersByCat != null && !seekersByCat.isEmpty()) {
+                menuText.append("👷 ТОП-5 категорий по соискателям:\n");
+                seekersByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .limit(5)
+                        .forEach(e -> menuText.append(" ├ ")
+                                .append(e.getKey()).append(": ").append(e.getValue()).append("\n"));
+                menuText.append("\n");
+            }
+
+            Map<String, Long> subsByCat = stats.getSubscriptionsByCategory();
+            if (subsByCat != null && !subsByCat.isEmpty()) {
+                menuText.append("📢 ТОП-5 категорий по подпискам:\n");
+                subsByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .limit(5)
+                        .forEach(e -> menuText.append(" ├ ")
+                                .append(e.getKey()).append(": ").append(e.getValue()).append("\n"));
+                menuText.append("\n");
+            }
+
+            menuText.append("Для выхода: /exit_admin\nВыберите действие:");
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -254,6 +490,11 @@ public class Telegram extends TelegramLongPollingBot {
                     button("🏢 Работодатели", "admin_employers")
             ));
             rows.add(List.of(
+                    button("📩 Заявки", "admin_applications"),
+                    button("💼 Вакансии", "admin_vacancies")
+            ));
+            rows.add(List.of(
+                    button("📂 Категории", "admin_categories"),
                     button("🔍 Инфо по TG ID", "admin_find_by_tg_id")
             ));
             rows.add(List.of(
@@ -263,12 +504,11 @@ public class Telegram extends TelegramLongPollingBot {
             rows.add(List.of(
                     button("🚪 Выйти из админ-режима", "admin_exit")
             ));
-
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
                     .chatId(String.valueOf(chatId))
-                    .text(menuText)
+                    .text(menuText.toString())
                     .replyMarkup(markup)
                     .build();
 
@@ -277,6 +517,98 @@ public class Telegram extends TelegramLongPollingBot {
         } catch (Exception e) {
             log.error("❌ sendAdminMenu error: {}", e.getMessage(), e);
             sendMessageSafe(chatId, "⚠️ Ошибка при открытии админ-меню: " + e.getMessage());
+        }
+    }
+
+    private void sendCategoryStats(long chatId) {
+        try {
+            AdminStatsDto stats = adminService.getDetailedStats();
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("📂 СТАТИСТИКА ПО КАТЕГОРИЯМ\n\n");
+
+            sb.append("Всего категорий: ").append(stats.getTotalCategories()).append("\n");
+            sb.append("Вакансий: ").append(stats.getTotalVacancies()).append("\n");
+            sb.append("Соискателей: ").append(stats.getTotalWorkers()).append("\n\n");
+
+            Map<String, Long> vacByCat = stats.getVacanciesByCategory();
+            if (vacByCat != null && !vacByCat.isEmpty()) {
+                sb.append("💼 ЧТО ПУБЛИКУЮТ РАБОТОДАТЕЛИ:\n");
+                vacByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .forEach(e -> sb.append(" ├ ")
+                                .append(e.getKey())
+                                .append(" — ").append(e.getValue()).append(" вакансий\n"));
+                sb.append("\n");
+            } else {
+                sb.append("💼 Вакансий по категориям нет.\n\n");
+            }
+
+            Map<String, Long> seekersByCat = stats.getSeekersByCategory();
+            if (seekersByCat != null && !seekersByCat.isEmpty()) {
+                sb.append("👷 ЧТО ВЫБИРАЮТ СОИСКАТЕЛИ:\n");
+                seekersByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .forEach(e -> sb.append(" ├ ")
+                                .append(e.getKey())
+                                .append(" — ").append(e.getValue()).append(" чел.\n"));
+                sb.append("\n");
+            } else {
+                sb.append("👷 Соискателей по категориям нет.\n\n");
+            }
+
+            sb.append("🏆 ТОП-3 САМЫЕ ПОПУЛЯРНЫЕ КАТЕГОРИИ:\n");
+
+            Map<String, Long> combined = new HashMap<>();
+            if (seekersByCat != null) {
+                seekersByCat.forEach((k, v) -> combined.merge(k, v * 2, Long::sum));
+            }
+            if (vacByCat != null) {
+                vacByCat.forEach((k, v) -> combined.merge(k, v, Long::sum));
+            }
+
+            if (!combined.isEmpty()) {
+                combined.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .limit(3)
+                        .forEach(e -> sb.append(" ├ ")
+                                .append(e.getKey())
+                                .append(" (score: ").append(e.getValue()).append(")\n"));
+            } else {
+                sb.append(" ├ Нет данных\n");
+            }
+            sb.append("\n");
+
+            Map<String, Long> subsByCat = stats.getSubscriptionsByCategory();
+            if (subsByCat != null && !subsByCat.isEmpty()) {
+                sb.append("📢 ПОДПИСКИ НА КАТЕГОРИИ:\n");
+                subsByCat.entrySet().stream()
+                        .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
+                        .forEach(e -> sb.append(" ├ ")
+                                .append(e.getKey())
+                                .append(" — ").append(e.getValue()).append(" подписок\n"));
+                sb.append("\n");
+            }
+
+            sb.append("Для возврата нажмите ⬅️ Назад");
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            markup.setKeyboard(List.of(List.of(
+                    button("⬅️ Назад", "admin_refresh"),
+                    button("🔄 Обновить", "admin_categories")
+            )));
+
+            SendMessage message = SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text(sb.toString())
+                    .replyMarkup(markup)
+                    .build();
+
+            executeMessage(message);
+
+        } catch (Exception e) {
+            log.error("❌ sendCategoryStats error: {}", e.getMessage(), e);
+            sendMessageSafe(chatId, "⚠️ Ошибка: " + e.getMessage());
         }
     }
 
@@ -289,6 +621,7 @@ public class Telegram extends TelegramLongPollingBot {
             }
             Long targetTgId = Long.parseLong(parts[1].trim());
             sendMessageSafe(chatId, adminService.getUserInfoByTgId(targetTgId));
+
         } catch (NumberFormatException e) {
             sendMessageSafe(chatId, "❌ Некорректный ID.");
         } catch (Exception e) {
@@ -375,11 +708,11 @@ public class Telegram extends TelegramLongPollingBot {
                 .build());
     }
 
-    // ============ БЕЗОПАСНАЯ ОТПРАВКА СООБЩЕНИЯ ============
+    // ============ БЕЗОПАСНАЯ ОТПРАВКА ============
 
     /**
-     * Отправляет сообщение БЕЗ parseMode, чтобы Telegram не падал
-     * на спецсимволах Markdown.
+     * Отправляет сообщение БЕЗ parseMode (безопасно для любых спецсимволов).
+     * Используется для сообщений, где нет разметки.
      */
     public void sendMessageSafe(long chatId, String text) {
         try {
@@ -393,12 +726,8 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ================================================
-    // ============ КОНЕЦ АДМИН-ЧАСТИ =================
+    // PUBLIC METODLAR
     // ================================================
-
-    // ============================================
-    // PUBLIC METODLAR (TelegramCallbackService chaqiradi)
-    // ============================================
     public void executeMessage(SendMessage message) {
         try {
             execute(message);
@@ -438,7 +767,7 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ============================================
-    // ВАШИ УТИЛИТЫ — НЕ ТРОНУТЫ
+    // ВАШИ УТИЛИТЫ
     // ============================================
     private void sendRoleSelectionMenu(Long chatId, String text) {
         SendMessage message = new SendMessage(chatId.toString(), text);
@@ -483,10 +812,14 @@ public class Telegram extends TelegramLongPollingBot {
         return markup;
     }
 
-    // ============================================
-    // ХЕЛПЕР
-    // ============================================
+    /**
+     * Отправляет сообщение с HTML-разметкой.
+     */
     public void sendMessage(long chatId, String text) {
-        sendMessageSafe(chatId, text);
+        executeMessage(SendMessage.builder()
+                .chatId(chatId)
+                .text(text)
+                .parseMode("HTML")
+                .build());
     }
 }

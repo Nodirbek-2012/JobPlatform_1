@@ -38,7 +38,5 @@ public interface JobSeekerProfileRepository extends JpaRepository<JobSeekerProfi
             "j.phoneNumber LIKE CONCAT('%', :keyword, '%')")
     List<JobSeekerProfile> searchForAdmin(@Param("keyword") String keyword);
 
-    List<JobSeekerProfile> findByCategoryIgnoreCaseOrProfessionIgnoreCase(String category, String profession);
-
 }
 
