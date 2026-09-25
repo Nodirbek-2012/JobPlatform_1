@@ -25,6 +25,8 @@ public interface JobSeekerProfileRepository extends JpaRepository<JobSeekerProfi
     // 3. Admin uchun: Ism-familiya bo'yicha izlash (Substring va Case-insensitive)
     List<JobSeekerProfile> findByFullNameContainingIgnoreCase(String fullName);
 
+    List<JobSeekerProfile> findAllByCategoryIgnoreCase(String category);
+
     // 4. Admin uchun: Foydalanuvchi mavjudligini tekshirish
     boolean existsByUserId(Long userId);
     boolean existsByPhoneNumber(String phoneNumber);

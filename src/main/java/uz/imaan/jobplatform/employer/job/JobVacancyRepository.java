@@ -25,6 +25,11 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
     // ===== YANGI: Employer uchun aktiv vakansiyalar =====
     List<JobVacancy> findAllByEmployerChatIdAndIsActiveTrue(Long employerChatId);
 
+    List<JobVacancy> findByNotifiedFalseAndIsActiveTrue();
+
+    @Query("SELECT v FROM JobVacancy v WHERE (v.notified IS NULL OR v.notified = false) AND v.isActive = true")
+    List<JobVacancy> findPendingNotificationVacancies();
+
     // ===== ⭐️ KALIT SO'Z BO'YICHA QIDIRUV (Katta-kichik harfni ajratmaydi) =====
     @Query("SELECT j FROM JobVacancy j WHERE j.isActive = true AND (" +
             "LOWER(j.title) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
