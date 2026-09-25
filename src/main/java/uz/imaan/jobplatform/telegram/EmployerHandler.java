@@ -91,8 +91,13 @@ public class EmployerHandler {
         draftData.putIfAbsent(chatId, new ConcurrentHashMap<>());
 
         Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
-        String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
+        String lang = profileOpt.map(EmployerEntity::getLanguage)
+                .filter(l -> l != null && !l.isBlank())
+                .orElse("uz");
         EmployerState currentState = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
+
+        log.info("🌐 [LANG READ] chatId={}, text={}, dbLang={}, profilePresent={}, state={}",
+                chatId, text, lang, profileOpt.isPresent(), currentState);
 
         // ===== РЕГИСТРАЦИЯ: ВЫБОР ЯЗЫКА СНАЧАЛА (через INLINE) =====
         boolean notRegistered = profileOpt.isEmpty()
@@ -101,20 +106,28 @@ public class EmployerHandler {
 
         if (notRegistered) {
 
-            // /start или пустое — показать выбор языка через INLINE
-            if (text.equals("/start") || text.equals("/menu")
-                    || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
-                    || text.equals("🏠 Main menu") || text.isBlank()) {
-                states.put(chatId, EmployerState.WAITING_FOR_LANGUAGE);
-                return createInlineLanguageMessage(chatId,
-                        "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
-            }
+            // Если ждём ЯЗЫК — но пришёл контакт/фото — не сбрасываем
+            // Если ждём ЯЗЫК и пришёл текст /start — показываем выбор языка
+            boolean isContactOrMedia = message.hasContact()
+                    || message.hasPhoto()
+                    || message.hasDocument()
+                    || message.hasLocation();
 
-            // Ждём язык — пользователь должен нажать INLINE-кнопку,
-            // но если он написал что-то — повторяем выбор языка
-            if (currentState == EmployerState.WAITING_FOR_LANGUAGE) {
-                return createInlineLanguageMessage(chatId,
-                        "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
+            // Показываем выбор языка только для /start или пустого текста
+            // (НЕ для контакта и НЕ для медиа!)
+            if (!isContactOrMedia) {
+                if (text.equals("/start") || text.equals("/menu")
+                        || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
+                        || text.equals("🏠 Main menu") || text.isBlank()) {
+                    states.put(chatId, EmployerState.WAITING_FOR_LANGUAGE);
+                    return createInlineLanguageMessage(chatId,
+                            "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
+                }
+
+                if (currentState == EmployerState.WAITING_FOR_LANGUAGE) {
+                    return createInlineLanguageMessage(chatId,
+                            "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
+                }
             }
 
             // После выбора языка — идём по шагам регистрации
@@ -785,7 +798,9 @@ public class EmployerHandler {
         draftData.putIfAbsent(chatId, new ConcurrentHashMap<>());
 
         Optional<EmployerEntity> profileOpt = employerRepository.findByEmployerChatId(chatId);
-        String lang = profileOpt.map(EmployerEntity::getLanguage).orElse("uz");
+        String lang = profileOpt.map(EmployerEntity::getLanguage)
+                .filter(l -> l != null && !l.isBlank())
+                .orElse("uz");
         EmployerState state = states.getOrDefault(chatId, EmployerState.MAIN_MENU);
 
         if (data == null) return null;
@@ -793,17 +808,25 @@ public class EmployerHandler {
         // ===== ВЫБОР ЯЗЫКА (INLINE callback) =====
         if (data.startsWith("lang_")) {
             String newLang = data.replace("lang_", "");
+            log.info("🌐 [LANG] callback={}, newLang={}, chatId={}", data, newLang, chatId);
 
             boolean isRegistration = profileOpt.isEmpty()
                     || profileOpt.get().getFullName() == null
                     || profileOpt.get().getFullName().isBlank();
 
+            // Если профиля нет — создаём
             EmployerEntity profile = profileOpt.orElseGet(() -> EmployerEntity.builder()
                     .employerChatId(chatId)
                     .createdAt(LocalDateTime.now())
                     .build());
+
             profile.setLanguage(newLang);
-            employerRepository.save(profile);
+            employerRepository.saveAndFlush(profile);  // ← ИЗМЕНИЛ save на saveAndFlush
+
+            // Проверяем, что сохранилось
+            String savedLang = employerRepository.findByEmployerChatId(chatId)
+                    .map(EmployerEntity::getLanguage).orElse("NULL");
+            log.info("🌐 [LANG SAVED] dbLang={}", savedLang);
 
             sendAnswerCallback(callbackQuery.getId(), null, false);
 

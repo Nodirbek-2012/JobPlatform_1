@@ -43,7 +43,7 @@ public class JobVacancy {
     @Column(name = "external_id", unique = true)
     private String externalId;
 
-    @Column(name = "source_url")
+    @Column(name = "source_url", columnDefinition = "TEXT")
     private String sourceUrl;
 
     // ⭐️ YANGI: Foydalanuvchilarga bildirishnoma yuborilganligini belgilovchi maydon

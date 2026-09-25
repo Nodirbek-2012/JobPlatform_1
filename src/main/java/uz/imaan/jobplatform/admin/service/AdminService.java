@@ -127,7 +127,76 @@ public class AdminService {
     }
 
     // ─────────────────────────── STATS ───────────────────────────
+    /**
+     * Красиво отформатированный профиль РАБОТОДАТЕЛЯ (HTML).
+     */
+    public String getEmployerDetails(Long employerChatId) {
+        EmployerEntity e = employerRepository.findByEmployerChatId(employerChatId)
+                .orElse(null);
 
+        // fallback — поиск по telegramId или по id
+        if (e == null) {
+            try { e = employerRepository.findByTelegramId(employerChatId).orElse(null); } catch (Exception ignored) {}
+        }
+        if (e == null) {
+            e = employerRepository.findById(employerChatId).orElse(null);
+        }
+        if (e == null) {
+            return "❌ Работодатель с ID " + employerChatId + " не найден.";
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        sb.append("🏢 <b>ПРОФИЛЬ РАБОТОДАТЕЛЯ</b>\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+
+        // --- Основное ---
+        sb.append("🆔 <b>ID (System):</b> ").append(e.getId() != null ? e.getId() : "—").append("\n");
+        sb.append("📱 <b>Telegram ID:</b> ").append(e.getTelegramId() != null ? e.getTelegramId() : "—").append("\n");
+        sb.append("💬 <b>Chat ID:</b> ").append(e.getEmployerChatId() != null ? e.getEmployerChatId() : "—").append("\n");
+        sb.append("🏢 <b>Компания:</b> ").append(safe(e.getCompanyName(), "Не указана")).append("\n");
+        sb.append("👤 <b>ФИО:</b> ").append(safe(e.getFullName(), "Не указано")).append("\n");
+        sb.append("🎂 <b>Возраст:</b> ").append(e.getAge() != null ? e.getAge() : "—").append("\n");
+
+        // --- Контакты и документы ---
+        sb.append("📞 <b>Телефон:</b> ").append(safe(e.getPhoneNumber(), "Не указан")).append("\n");
+        sb.append("📄 <b>ИНН:</b> ").append(safe(e.getInn(), "Не указан")).append("\n");
+        sb.append("🪪 <b>Паспорт:</b> ").append(safe(e.getPassportSeriesNumber(), "Не указан")).append("\n");
+
+        // --- Компания ---
+        if (e.getCompanyAddress() != null && !e.getCompanyAddress().isBlank())
+            sb.append("📍 <b>Адрес:</b> ").append(e.getCompanyAddress()).append("\n");
+        if (e.getCompanyWebsite() != null && !e.getCompanyWebsite().isBlank())
+            sb.append("🔗 <b>Сайт:</b> <a href='").append(e.getCompanyWebsite()).append("'>")
+                    .append(e.getCompanyWebsite()).append("</a>\n");
+        if (e.getCompanySize() != null && !e.getCompanySize().isBlank())
+            sb.append("👥 <b>Размер:</b> ").append(e.getCompanySize()).append("\n");
+        if (e.getCompanyDescription() != null && !e.getCompanyDescription().isBlank())
+            sb.append("📝 <b>Описание:</b> ").append(e.getCompanyDescription()).append("\n");
+
+        // --- Профессиональное ---
+        sb.append("💼 <b>Категория:</b> ").append(safe(e.getCategory(), "Не указана")).append("\n");
+        sb.append("🧰 <b>Тип работы:</b> ").append(safe(e.getJobType(), "Не указан")).append("\n");
+        sb.append("🌐 <b>Язык:</b> ").append(safe(e.getLanguage(), "Не указан")).append("\n");
+
+        // --- Финансы и рейтинг ---
+        sb.append("⭐ <b>Рейтинг:</b> ").append(
+                e.getRating() != null ? String.format("%.1f", e.getRating()) : "0.0"
+        ).append(" (Отзывов: ").append(e.getReviewCount() != null ? e.getReviewCount() : 0).append(")\n");
+
+        // --- Статус ---
+        sb.append("📌 <b>Статус:</b> ").append(safe(e.getStatus(), "—")).append("\n");
+
+        // --- Кол-во вакансий ---
+        try {
+            long vacancyCount = jobVacancyRepository.countByEmployerChatId(e.getEmployerChatId());
+            sb.append("💼 <b>Вакансий:</b> ").append(vacancyCount).append("\n");
+        } catch (Exception ignored) { }
+
+        sb.append("━━━━━━━━━━━━━━━━━━━━");
+        return sb.toString();
+
+    }
     @Transactional(readOnly = true)
     public AdminStatsDto getDetailedStats() {
 
@@ -597,5 +666,7 @@ public class AdminService {
         }
 
         return new Object[]{sb.toString(), idsOnPage, totalPages};
-    }
-}
+    }}
+    /**
+     * Красиво отформатированный профиль РАБОТОДАТЕЛЯ (HTML).
+     */

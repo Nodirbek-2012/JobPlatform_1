@@ -112,11 +112,6 @@ public class Telegram extends TelegramLongPollingBot {
             return;
         }
 
-        if (text.equals("/language") || text.equals("🌐 Til") || text.equals("🌐 Язык") || text.equals("🌐 Language")) {
-            sendLanguageMenuAdmin(chatId);
-            return;
-        }
-
         if (text.contains("Employer (Ish beruvchi)") || text.contains("Ish beruvchi (Employer)")) {
             userRoles.put(chatId, UserRole.EMPLOYER);
         } else if (text.contains("JobSeeker (Ish izlovchi)") || text.contains("Ish izlovchi (JobSeeker)")) {
@@ -174,6 +169,8 @@ public class Telegram extends TelegramLongPollingBot {
             sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
             return true;
         }
+        // ===== Детали работодателя =====
+
 
         if (!isInAdminMode(chatId)) return false;
 
@@ -264,6 +261,7 @@ public class Telegram extends TelegramLongPollingBot {
                 }
                 rows.add(numbersRow);
             }
+
 
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
