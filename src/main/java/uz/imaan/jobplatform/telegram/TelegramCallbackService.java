@@ -61,19 +61,13 @@ public class TelegramCallbackService {
         log.info("📩 Callback: chatId={}, data={}", chatId, callbackData);
 
         try {
-            // ============================================
-            // 0. TIL TANLASH LOGIKASI
-            // ============================================
-            if (callbackData != null && callbackData.startsWith("lang_")) {
-                handleLanguageSelection(callbackQuery, chatId, bot);
-                return;
-            }
 
             // ============================================
-            // 1. ISH BERUVCHI CALLBACKLARI
+            // 1. ISH BERUVCHI CALLBACKLARI (включая lang_)
             // ============================================
             if (callbackData != null && (
-                    callbackData.startsWith("emp_cat_") ||
+                    callbackData.startsWith("lang_") ||
+                            callbackData.startsWith("emp_cat_") ||
                             callbackData.startsWith("emp_app_status_") ||
                             callbackData.startsWith("vac_edit_") ||
                             callbackData.startsWith("vac_delete_") ||
@@ -183,7 +177,7 @@ public class TelegramCallbackService {
     }
 
     // ============================================
-    // SOATLIK ISHLAR LOGIKASI (YANGILANDI)
+    // SOATLIK ISHLAR LOGIKASI
     // ============================================
 
     public void sendHourlyJobs(Long chatId, Telegram bot) {
@@ -246,7 +240,6 @@ public class TelegramCallbackService {
             SendMessage msg = new SendMessage(chatId.toString(), cardText);
             msg.setParseMode("HTML");
 
-            // URL to'g'ri formatdaligini tekshirish (Bot xatolik bilan yiqilmasligi uchun)
             if (isValidUrl(job.originalUrl())) {
                 InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
                 InlineKeyboardButton linkBtn = new InlineKeyboardButton();
@@ -259,7 +252,6 @@ public class TelegramCallbackService {
             bot.executeMessage(msg);
         }
 
-        // Sahifadan sahifaga o'tish tugmalari (Pagination)
         if (totalPages > 1) {
             SendMessage navMsg = new SendMessage(chatId.toString(), "📄 <b>Boshqa e'lonlarni ko'rish:</b>");
             navMsg.setParseMode("HTML");
@@ -345,39 +337,6 @@ public class TelegramCallbackService {
 
         SendMessage response = jobSeekerHandler.handleVacancyPagination(chatId, categoryKey, 0, profileOpt);
         if (response != null) bot.executeMessage(response);
-    }
-
-    private void handleLanguageSelection(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
-        bot.sendAnswerCallback(callbackQuery.getId(), null, false);
-        String language = callbackQuery.getData().replace("lang_", "");
-        jobSeekerHandler.updateLanguage(chatId, language);
-
-        JobSeekerState state = stateManager.getState(chatId);
-
-        if (state == JobSeekerState.WAITING_FOR_LANGUAGE || state == null || "true".equals(stateManager.getData(chatId, "registration"))) {
-            stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
-            stateManager.removeData(chatId, "registration");
-
-            String namePrompt = switch (language) {
-                case "ru" -> "👤 <b>Регистрация в качестве соискателя:</b>\n\nВведите ваше имя и фамилию.\n💡 <i>Пример:</i> <code>Ali Valiyev</code>";
-                case "en" -> "👤 <b>Registration as a job seeker:</b>\n\nPlease enter your first and last name.\n💡 <i>Example:</i> <code>Ali Valiyev</code>";
-                default -> "👤 <b>Ish izlovchi sifatida ro'yxatdan o'tish:</b>\n\nIltimos, ism va familiyangizni kiriting.\n💡 <i>Misol:</i> <code>Ali Valiyev</code>";
-            };
-
-            SendMessage nameMsg = new SendMessage(chatId.toString(), namePrompt);
-            nameMsg.setParseMode("HTML");
-            bot.executeMessage(nameMsg);
-            return;
-        }
-
-        String responseText = switch (language) {
-            case "uz" -> "✅ Til O'zbek tiliga o'zgartirildi!";
-            case "ru" -> "✅ Язык изменен на Русский!";
-            case "en" -> "✅ Language changed to English!";
-            default -> "✅";
-        };
-
-        bot.executeMessage(new SendMessage(chatId.toString(), responseText));
     }
 
     private void handleRating(CallbackQuery callbackQuery, Long chatId, Integer messageId, Telegram bot) {
