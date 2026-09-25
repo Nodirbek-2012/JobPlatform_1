@@ -169,6 +169,8 @@ public class Telegram extends TelegramLongPollingBot {
             sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
             return true;
         }
+        // ===== Детали работодателя =====
+
 
         if (!isInAdminMode(chatId)) return false;
 
@@ -259,6 +261,7 @@ public class Telegram extends TelegramLongPollingBot {
                 }
                 rows.add(numbersRow);
             }
+
 
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
