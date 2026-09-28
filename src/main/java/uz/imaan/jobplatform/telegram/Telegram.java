@@ -484,7 +484,6 @@ public class Telegram extends TelegramLongPollingBot {
                 menuText.append("📢 ТОП-5 категорий по подпискам:\n");
                 subsByCat.entrySet().stream()
                         .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
-                        .limit(5)
                         .forEach(e -> menuText.append(" ├ ")
                                 .append(e.getKey()).append(": ").append(e.getValue()).append("\n"));
                 menuText.append("\n");
@@ -738,7 +737,18 @@ public class Telegram extends TelegramLongPollingBot {
         try {
             execute(message);
         } catch (TelegramApiException e) {
-            log.error("❌ Xatolik: {}", e.getMessage());
+            // ⭐️ HTML Parse xatosi bo'lsa, xabarni yo'qotmasdan oddiy matn sifatida qayta jo'natadi
+            if (e.getMessage() != null && e.getMessage().contains("can't parse entities")) {
+                log.warn("⚠️ HTML formati buzilgan, xabar oddiy matn sifatida qayta jo'natilmoqda...");
+                message.setParseMode(null);
+                try {
+                    execute(message);
+                } catch (TelegramApiException ex) {
+                    log.error("❌ Qayta yuborishda xatolik: {}", ex.getMessage());
+                }
+            } else {
+                log.error("❌ Xatolik: {}", e.getMessage());
+            }
         }
     }
 

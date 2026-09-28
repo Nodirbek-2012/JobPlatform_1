@@ -201,6 +201,21 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return clean.matches("^[A-Z]{2}\\d{7}$");
     }
 
+    // ⭐️ TELEFON RAQAM FORMATINI TEKSHIRISH
+    private boolean isValidPhoneNumber(String phone) {
+        if (phone == null || phone.isBlank()) return false;
+        String clean = phone.replaceAll("[\\s\\-\\(\\)]", "");
+        return clean.matches("^(\\+?998)?[0-9]{9}$");
+    }
+
+    // ⭐️ TELEFON RAQAMINI YAGONA STANDARTGA (+998XXXXXXXXX) KELTIRISH
+    private String formatPhoneNumber(String phone) {
+        String clean = phone.replaceAll("[\\s\\-\\(\\)]", "");
+        if (clean.startsWith("+998")) return clean;
+        if (clean.startsWith("998")) return "+" + clean;
+        return "+998" + clean;
+    }
+
     // ============================================
     // ASOSIY HANDLE METODI
     // ============================================
@@ -397,31 +412,32 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return showProfile(chatId, Optional.of(profile));
         }
 
+        // ⭐️ TAHRIRLASHDA TELEFON VALIDATSIYASI
         if (state == JobSeekerState.WAITING_FOR_EDIT_PHONE && profileOpt.isPresent()) {
-            String phone = null;
+            String rawPhone = null;
             if (message.hasContact() && message.getContact() != null) {
-                phone = message.getContact().getPhoneNumber();
+                rawPhone = message.getContact().getPhoneNumber();
             } else if (message.hasText()) {
-                phone = message.getText().trim();
+                rawPhone = message.getText().trim();
             }
 
-            if (phone != null && !phone.isEmpty()) {
-                JobSeekerProfile profile = profileOpt.get();
-                profile.setPhoneNumber(phone);
-                jobSeekerProfileRepository.save(profile);
-
-                stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
-                String okMsg = getText(profileOpt, chatId,
-                        "✅ <b>Номер телефона успешно обновлен!</b>",
-                        "✅ <b>Telefon raqamingiz yangilandi!</b>");
-                executeMessage(createHtmlMessage(chatId, okMsg, null));
-                return showProfile(chatId, Optional.of(profile));
-            } else {
+            if (rawPhone == null || !isValidPhoneNumber(rawPhone)) {
                 String errPhone = getText(profileOpt, chatId,
-                        "❌ Номер телефона не получен. Введите номер или отправьте контакт:",
-                        "❌ Telefon raqam olinmadi. Iltimos, raqamni yozing yoki kontakt orqali yuboring:");
+                        "❌ **Неверный формат номера телефона!**\n\nВведите номер в формате `+998901234567`:",
+                        "❌ **Telefon raqam formati noto'g'ri!**\n\nIltimos, `+998901234567` ko'rinishida yozing yoki tugmadan foydalaning:");
                 return createMessage(chatId, errPhone, keyboardService.getPhoneKeyboard());
             }
+
+            JobSeekerProfile profile = profileOpt.get();
+            profile.setPhoneNumber(formatPhoneNumber(rawPhone));
+            jobSeekerProfileRepository.save(profile);
+
+            stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
+            String okMsg = getText(profileOpt, chatId,
+                    "✅ <b>Номер телефона успешно обновлен!</b>",
+                    "✅ <b>Telefon raqamingiz yangilandi!</b>");
+            executeMessage(createHtmlMessage(chatId, okMsg, null));
+            return showProfile(chatId, Optional.of(profile));
         }
 
         // ===== KASBNI O'ZGARTIRISH =====
@@ -677,43 +693,44 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         }
     }
 
+    // ⭐️ TELEFON RAQAMINI TEKSHIRIB QABUL QILISH
     private SendMessage handlePhoneInput(Long chatId, Message message, Optional<JobSeekerProfile> profileOpt) {
-        String text = message.hasText() ? message.getText().trim() : "";
-        String phone = null;
+        String rawPhone = null;
 
         if (message.hasContact() && message.getContact() != null) {
-            phone = message.getContact().getPhoneNumber();
-        } else if (text != null && !text.isEmpty()) {
-            phone = text;
+            rawPhone = message.getContact().getPhoneNumber();
+        } else if (message.hasText()) {
+            rawPhone = message.getText().trim();
         }
 
-        if (phone != null && !phone.isEmpty()) {
-            stateManager.putData(chatId, "phone", phone);
-
-            JobSeekerProfile profile = new JobSeekerProfile();
-            profile.setUserId(chatId);
-            profile.setFullName(stateManager.getData(chatId, "fullName"));
-            profile.setPassportNumber(stateManager.getData(chatId, "passport"));
-            profile.setPhoneNumber(phone);
-
-            String tempLang = stateManager.getData(chatId, "tempLanguage");
-            profile.setLanguage(tempLang != null ? tempLang : "uz");
-
-            jobSeekerProfileRepository.save(profile);
-
-            stateManager.setState(chatId, JobSeekerState.WAITING_FOR_JOB_TYPE);
-            String msg = getText(Optional.of(profile), chatId,
-                    "🛠 **Какую работу вы ищете?**\n\nПожалуйста, выберите один из вариантов:",
-                    "🛠 **Qanday turdagi ish qidiryapsiz?**\n\nIltimos, quyidagi tugmalardan birini tanlang:"
-            );
-            return createMessage(chatId, msg, keyboardService.getJobTypeKeyboard(Optional.of(profile)));
-        } else {
+        if (rawPhone == null || !isValidPhoneNumber(rawPhone)) {
             String msg = getText(profileOpt, chatId,
-                    "❌ Номер телефона не отправлен. Пожалуйста, используйте кнопку ниже:",
-                    "❌ Telefon raqam yuborilmadi. Iltimos, pastdagi tugma orqali yuboring:"
+                    "❌ **Неверный формат номера телефона!**\n\nПожалуйста, отправьте контакт через кнопку или введите номер вручную.\n💡 *Пример:* `+998901234567`",
+                    "❌ **Telefon raqam formati noto'g'ri!**\n\nIltimos, pastdagi tugma orqali yuboring yoki to'g'ri formatda yozing.\n💡 *Misol:* `+998901234567`"
             );
             return createMessage(chatId, msg, keyboardService.getPhoneKeyboard());
         }
+
+        String phone = formatPhoneNumber(rawPhone);
+        stateManager.putData(chatId, "phone", phone);
+
+        JobSeekerProfile profile = new JobSeekerProfile();
+        profile.setUserId(chatId);
+        profile.setFullName(stateManager.getData(chatId, "fullName"));
+        profile.setPassportNumber(stateManager.getData(chatId, "passport"));
+        profile.setPhoneNumber(phone);
+
+        String tempLang = stateManager.getData(chatId, "tempLanguage");
+        profile.setLanguage(tempLang != null ? tempLang : "uz");
+
+        jobSeekerProfileRepository.save(profile);
+
+        stateManager.setState(chatId, JobSeekerState.WAITING_FOR_JOB_TYPE);
+        String msg = getText(Optional.of(profile), chatId,
+                "🛠 **Какую работу вы ищете?**\n\nПожалуйста, выберите один из вариантов:",
+                "🛠 **Qanday turdagi ish qidiryapsiz?**\n\nIltimos, quyidagi tugmalardan birini tanlang:"
+        );
+        return createMessage(chatId, msg, keyboardService.getJobTypeKeyboard(Optional.of(profile)));
     }
 
     private SendMessage handleJobTypeSelection(Long chatId, String text, Optional<JobSeekerProfile> profileOpt) {

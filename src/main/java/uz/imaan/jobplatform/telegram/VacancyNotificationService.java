@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import uz.imaan.jobplatform.employer.job.JobVacancy;
 import uz.imaan.jobplatform.employer.job.JobVacancyRepository;
 import uz.imaan.jobplatform.jobseeker.entity.JobSeekerProfile;
@@ -31,7 +32,7 @@ public class VacancyNotificationService {
         this.telegramBot = telegramBot;
     }
 
-    @Scheduled(fixedDelay = 20000) // Har 20 soniyada tekshiradi
+    @Scheduled(fixedDelay = 20000)
     @Transactional
     public void notifyJobSeekersAboutNewVacancies() {
         List<JobVacancy> newVacancies = jobVacancyRepository.findPendingNotificationVacancies();
@@ -39,8 +40,6 @@ public class VacancyNotificationService {
         if (newVacancies.isEmpty()) {
             return;
         }
-
-        log.info("🔔 Bildirishnoma kutayotgan {} ta yangi vakansiya topildi.", newVacancies.size());
 
         List<JobSeekerProfile> allSeekers = jobSeekerProfileRepository.findAll();
 
@@ -54,7 +53,7 @@ public class VacancyNotificationService {
                 Long chatId = seeker.getUserId();
                 if (chatId == null) continue;
 
-                // Ish beruvchi o'ziga o'zi xabar jo'natmasligi uchun
+                // Ish beruvchi o'ziga o'zi bildirishnoma yubormasligi uchun
                 if (vacancy.getEmployerChatId() != null && vacancy.getEmployerChatId().equals(chatId)) {
                     continue;
                 }
@@ -62,30 +61,39 @@ public class VacancyNotificationService {
                 String seekerCat = seeker.getCategory() != null ? seeker.getCategory().toLowerCase() : "";
                 String seekerProf = seeker.getProfession() != null ? seeker.getProfession().toLowerCase() : "";
 
-                // Moslikni tekshiramiz (IT, Dasturlash va h.k.)
                 boolean matches = isCategoryMatching(vacCategory, vacTitle, seekerCat, seekerProf);
 
                 if (matches) {
-                    sendNewVacancyAlert(chatId, vacancy);
-                    sentCount++;
+                    boolean success = sendNewVacancyAlert(chatId, vacancy, seeker);
+                    if (success) {
+                        sentCount++;
+                    }
+
+                    // ⭐️ 429 TOO MANY REQUESTS OLDINI OLISH:
+                    // Telegram limiti sekundiga ~30 ta. 40 ms tanaffus = sekundiga maksimal 25 ta xabar.
+                    try {
+                        Thread.sleep(40);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
             }
 
             vacancy.setNotified(true);
             jobVacancyRepository.save(vacancy);
-            log.info("📢 Vakansiya '{}' bo'yicha {} ta nomzodga xabar yuborildi.", vacancy.getTitle(), sentCount);
+            if (sentCount > 0) {
+                log.info("📢 Vakansiya '{}' bo'yicha {} ta nomzodga bildirishnoma yuborildi.", vacancy.getTitle(), sentCount);
+            }
         }
     }
 
     private boolean isCategoryMatching(String vacCat, String vacTitle, String seekerCat, String seekerProf) {
         if (seekerCat.isBlank() && seekerProf.isBlank()) return false;
 
-        // Aniq tenglik
         if (!vacCat.isBlank() && (vacCat.equalsIgnoreCase(seekerCat) || vacCat.equalsIgnoreCase(seekerProf))) {
             return true;
         }
 
-        // IT sohasi uchun maxsus moslik
         boolean isItSeeker = seekerCat.contains("it") || seekerCat.contains("dastur") ||
                 seekerProf.contains("it") || seekerProf.contains("dastur") || seekerProf.contains("java");
         boolean isItVacancy = vacCat.contains("it") || vacCat.contains("dastur") ||
@@ -95,12 +103,11 @@ public class VacancyNotificationService {
             return true;
         }
 
-        // Umumiy qidiruv
         return (!vacCat.isBlank() && seekerCat.contains(vacCat)) ||
                 (!vacCat.isBlank() && seekerProf.contains(vacCat));
     }
 
-    private void sendNewVacancyAlert(Long chatId, JobVacancy vacancy) {
+    private boolean sendNewVacancyAlert(Long chatId, JobVacancy vacancy, JobSeekerProfile seeker) {
         try {
             String company = vacancy.getCompanyName() != null ? vacancy.getCompanyName() : "Ko'rsatilmagan";
             String salary = vacancy.getSalary() != null ? vacancy.getSalary() : "Kelishuv asosida";
@@ -132,14 +139,38 @@ public class VacancyNotificationService {
             markup.setKeyboard(List.of(List.of(viewBtn)));
             sm.setReplyMarkup(markup);
 
-            telegramBot.executeMessage(sm);
-        } catch (Exception e) {
-            log.error("Xabar jo'natishda xatolik (chatId={}): {}", chatId, e.getMessage());
+            telegramBot.execute(sm);
+            return true;
+
+        } catch (TelegramApiException e) {
+            String errorMsg = e.getMessage() != null ? e.getMessage() : "";
+
+            // ⭐️ 403 FORBIDDEN: Foydalanuvchi botni bloklagan bo'lsa
+            if (errorMsg.contains("bot was blocked by the user") || errorMsg.contains("403")) {
+                log.warn("🚫 Foydalanuvchi (chatId={}) botni bloklagan. Kelgusida xabar yuborilmaydi.", chatId);
+            }
+            // ⭐️ HTML Parse xatosi bo'lsa oddiy matnda yuborish
+            else if (errorMsg.contains("can't parse entities")) {
+                try {
+                    SendMessage fallbackSm = new SendMessage(chatId.toString(),
+                            "🔔 Sizning sohangiz bo'yicha yangi ish joylandi: " + vacancy.getTitle());
+                    telegramBot.execute(fallbackSm);
+                    return true;
+                } catch (Exception ex) {
+                    log.error("Fallback yuborishda ham xatolik: {}", ex.getMessage());
+                }
+            } else {
+                log.error("Bildirishnoma yuborishda xatolik (chatId={}): {}", chatId, errorMsg);
+            }
+            return false;
         }
     }
 
     private String escapeHtml(String text) {
         if (text == null) return "";
-        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        return text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
     }
 }
