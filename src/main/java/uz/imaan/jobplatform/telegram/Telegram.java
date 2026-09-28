@@ -78,7 +78,7 @@ public class Telegram extends TelegramLongPollingBot {
     public void onUpdateReceived(Update update) {
 
         // ============================================
-        // 1. CALLBACK QUERY
+        // 1. CALLBACK QUERY (Inline tugmalar)
         // ============================================
         if (update.hasCallbackQuery()) {
             log.info("📩 Callback keldi: {}", update.getCallbackQuery().getData());
@@ -102,22 +102,37 @@ public class Telegram extends TelegramLongPollingBot {
 
         log.info("📩 Xabar: chatId={}, text={}", chatId, text);
 
+        // Admin komandalarini tekshirish
         if (handleAdminCommand(chatId, text)) {
             return;
         }
 
+        // Start yoki rolni o'zgartirish
         if (text.equals("/start") || text.equals("🔄 Rolni o'zgartirish")) {
             userRoles.put(chatId, UserRole.NONE);
             sendRoleSelectionMenu(chatId, "Xush kelibsiz! Rolingizni tanlang:");
             return;
         }
 
+        // ============================================
+        // ROLLARNI TANLASH VA AJRATISH (To'qnashuvsiz)
+        // ============================================
         if (text.contains("Employer (Ish beruvchi)") || text.contains("Ish beruvchi (Employer)")) {
             userRoles.put(chatId, UserRole.EMPLOYER);
-        } else if (text.contains("JobSeeker (Ish izlovchi)") || text.contains("Ish izlovchi (JobSeeker)")) {
+            SendMessage response = employerHandler.handleEmployer(message);
+            if (response != null) executeMessage(response);
+            return; // 👈 Keyingi bloklarga o'tib ketmasligi uchun to'xtatadi
+        }
+        else if (text.contains("JobSeeker (Ish izlovchi)") || text.contains("Ish izlovchi (JobSeeker)")) {
             userRoles.put(chatId, UserRole.JOB_SEEKER);
+            SendMessage response = jobSeekerHandler.handleJobSeeker(message);
+            if (response != null) executeMessage(response);
+            return; // 👈 Ish beruvchi kodi bilan aralashib ketmasligi uchun to'xtatadi
         }
 
+        // ============================================
+        // MAVJUD ROL BO'YICHA XABARLARNI YUBORISH
+        // ============================================
         UserRole role = userRoles.getOrDefault(chatId, UserRole.NONE);
 
         if (role == UserRole.EMPLOYER) {
@@ -169,8 +184,6 @@ public class Telegram extends TelegramLongPollingBot {
             sendMessageSafe(chatId, "👋 Вы вышли из админ-режима.");
             return true;
         }
-        // ===== Детали работодателя =====
-
 
         if (!isInAdminMode(chatId)) return false;
 
@@ -262,7 +275,6 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(numbersRow);
             }
 
-
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
                 if (page > 0) navRow.add(button("⬅️", "employers_page_" + (page - 1)));
@@ -335,7 +347,7 @@ public class Telegram extends TelegramLongPollingBot {
                 SendMessage message = SendMessage.builder()
                         .chatId(String.valueOf(chatId))
                         .text(details)
-                        .parseMode("HTML")  // <-- ГЛАВНОЕ ИСПРАВЛЕНИЕ
+                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
@@ -359,7 +371,7 @@ public class Telegram extends TelegramLongPollingBot {
                 SendMessage message = SendMessage.builder()
                         .chatId(String.valueOf(chatId))
                         .text(details)
-                        .parseMode("HTML")  // <-- ИСПРАВЛЕНО
+                        .parseMode("HTML")
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
@@ -708,10 +720,6 @@ public class Telegram extends TelegramLongPollingBot {
 
     // ============ БЕЗОПАСНАЯ ОТПРАВКА ============
 
-    /**
-     * Отправляет сообщение БЕЗ parseMode (безопасно для любых спецсимволов).
-     * Используется для сообщений, где нет разметки.
-     */
     public void sendMessageSafe(long chatId, String text) {
         try {
             executeMessage(SendMessage.builder()
@@ -765,7 +773,7 @@ public class Telegram extends TelegramLongPollingBot {
     }
 
     // ============================================
-    // ВАШИ УТИЛИТЫ
+    // VAZIFA UCHUN YORDAMCHI MENYULAR
     // ============================================
     private void sendRoleSelectionMenu(Long chatId, String text) {
         SendMessage message = new SendMessage(chatId.toString(), text);
@@ -784,7 +792,7 @@ public class Telegram extends TelegramLongPollingBot {
         executeMessage(message);
     }
 
-    private void sendLanguageSelectionMenu(Long chatId) {
+    public void sendLanguageSelectionMenu(Long chatId) {
         SendMessage message = new SendMessage();
         message.setChatId(chatId.toString());
         message.setText("🌐 <b>Tilni tanlang / Выберите язык:</b>");
@@ -793,7 +801,10 @@ public class Telegram extends TelegramLongPollingBot {
         executeMessage(message);
     }
 
-    private InlineKeyboardMarkup getLanguageInlineKeyboard() {
+    /**
+     * Faqat 2 ta til (O'zbek va Rus tillari). Ingliz tili butunlay olib tashlandi.
+     */
+    public InlineKeyboardMarkup getLanguageInlineKeyboard() {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
@@ -802,17 +813,12 @@ public class Telegram extends TelegramLongPollingBot {
                 .text("🇺🇿 O'zbek").callbackData("lang_uz").build());
         row1.add(InlineKeyboardButton.builder()
                 .text("🇷🇺 Русский").callbackData("lang_ru").build());
-        row1.add(InlineKeyboardButton.builder()
-                .text("🇬🇧 English").callbackData("lang_en").build());
 
         rows.add(row1);
         markup.setKeyboard(rows);
         return markup;
     }
 
-    /**
-     * Отправляет сообщение с HTML-разметкой.
-     */
     public void sendMessage(long chatId, String text) {
         executeMessage(SendMessage.builder()
                 .chatId(chatId)

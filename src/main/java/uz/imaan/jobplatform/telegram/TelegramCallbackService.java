@@ -61,13 +61,36 @@ public class TelegramCallbackService {
         log.info("📩 Callback: chatId={}, data={}", chatId, callbackData);
 
         try {
+            // ============================================
+            // 0. TIL TANLASH (ROLGA QARAB AJRATISH)
+            // ============================================
+            if (callbackData != null && callbackData.startsWith("lang_")) {
+                JobSeekerState jsState = stateManager.getState(chatId);
+                boolean isJobSeekerReg = "true".equals(stateManager.getData(chatId, "registration"));
+
+                // Agar JobSeeker til tanlayotgan bo'lsa
+                if (jsState == JobSeekerState.WAITING_FOR_LANGUAGE || isJobSeekerReg) {
+                    handleLanguageSelection(callbackQuery, chatId, bot);
+                    return;
+                }
+
+                // Agar ish beruvchi bo'lsa employerHandler ga uzatamiz
+                SendMessage response = employerHandler.handleCallback(callbackQuery);
+                if (response != null) {
+                    bot.executeMessage(response);
+                    return;
+                }
+
+                // Default holatda ham JobSeeker tilini yangilaymiz
+                handleLanguageSelection(callbackQuery, chatId, bot);
+                return;
+            }
 
             // ============================================
-            // 1. ISH BERUVCHI CALLBACKLARI (включая lang_)
+            // 1. ISH BERUVCHI CALLBACKLARI
             // ============================================
             if (callbackData != null && (
-                    callbackData.startsWith("lang_") ||
-                            callbackData.startsWith("emp_cat_") ||
+                    callbackData.startsWith("emp_cat_") ||
                             callbackData.startsWith("emp_app_status_") ||
                             callbackData.startsWith("vac_edit_") ||
                             callbackData.startsWith("vac_delete_") ||
@@ -177,6 +200,38 @@ public class TelegramCallbackService {
     }
 
     // ============================================
+    // TILNI TANLASH VA REGISTRATSIYA BOSQICHI
+    // ============================================
+
+    private void handleLanguageSelection(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
+        bot.sendAnswerCallback(callbackQuery.getId(), null, false);
+        String language = callbackQuery.getData().replace("lang_", "");
+        jobSeekerHandler.updateLanguage(chatId, language);
+
+        JobSeekerState state = stateManager.getState(chatId);
+
+        if (state == JobSeekerState.WAITING_FOR_LANGUAGE || state == null || "true".equals(stateManager.getData(chatId, "registration"))) {
+            stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
+            stateManager.removeData(chatId, "registration");
+
+            String namePrompt = "ru".equals(language)
+                    ? "👤 <b>Регистрация в качестве соискателя:</b>\n\nВведите ваше имя и фамилию.\n💡 <i>Пример:</i> <code>Ali Valiyev</code>"
+                    : "👤 <b>Ish izlovchi sifatida ro'yxatdan o'tish:</b>\n\nIltimos, ism va familiyangizni kiriting.\n💡 <i>Misol:</i> <code>Ali Valiyev</code>";
+
+            SendMessage nameMsg = new SendMessage(chatId.toString(), namePrompt);
+            nameMsg.setParseMode("HTML");
+            bot.executeMessage(nameMsg);
+            return;
+        }
+
+        String responseText = "ru".equals(language)
+                ? "✅ Язык изменен на Русский!"
+                : "✅ Til O'zbek tiliga o'zgartirildi!";
+
+        bot.executeMessage(new SendMessage(chatId.toString(), responseText));
+    }
+
+    // ============================================
     // SOATLIK ISHLAR LOGIKASI
     // ============================================
 
@@ -234,7 +289,7 @@ public class TelegramCallbackService {
                     escapeHtml(job.salary()),
                     escapeHtml(job.location()),
                     escapeHtml(job.jobType()),
-                    escapeHtml(badge)
+                    badge
             );
 
             SendMessage msg = new SendMessage(chatId.toString(), cardText);
@@ -300,11 +355,9 @@ public class TelegramCallbackService {
             stateManager.putData(chatId, "profession", categoryName);
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EXPERIENCE);
 
-            String expPrompt = switch (profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz")) {
-                case "ru" -> "📝 <b>Расскажите о своем опыте работы:</b>\n\nСколько времени вы работаете?\n💡 <i>Пример:</i> <code>3 года Java разработчиком</code>";
-                case "en" -> "📝 <b>Tell us about your work experience:</b>\n\nHow long have you been working?\n💡 <i>Example:</i> <code>3 years Java developer</code>";
-                default -> "📝 <b>Ish tajribangiz haqida ma'lumot bering:</b>\n\nQancha vaqtdan beri ishlayapsiz?\n💡 <i>Misol:</i> <code>3 yil Java dasturchi</code>";
-            };
+            String expPrompt = "ru".equals(profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz"))
+                    ? "📝 <b>Расскажите о своем опыте работы:</b>\n\nСколько времени вы работаете?\n💡 <i>Пример:</i> <code>3 года Java разработчиком</code>"
+                    : "📝 <b>Ish tajribangiz haqida ma'lumot bering:</b>\n\nQancha vaqtdan beri ishlayapsiz?\n💡 <i>Misol:</i> <code>3 yil Java dasturchi</code>";
 
             SendMessage expMsg = new SendMessage(chatId.toString(), expPrompt);
             expMsg.setParseMode("HTML");
@@ -538,11 +591,9 @@ public class TelegramCallbackService {
         Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
         String lang = profileOpt.map(JobSeekerProfile::getLanguage).orElse("uz");
 
-        String alertText = switch (lang) {
-            case "ru" -> isSaved ? "⭐ Добавлено в избранное!" : "❌ Удалено из избранного!";
-            case "en" -> isSaved ? "⭐ Saved to favorites!" : "❌ Removed from favorites!";
-            default -> isSaved ? "⭐ Vakansiya saqlandi!" : "❌ Saralanganlardan o'chirildi!";
-        };
+        String alertText = "ru".equals(lang)
+                ? (isSaved ? "⭐ Добавлено в избранное!" : "❌ Удалено из избранного!")
+                : (isSaved ? "⭐ Vakansiya saqlandi!" : "❌ Saralanganlardan o'chirildi!");
 
         bot.sendAnswerCallback(callbackQuery.getId(), alertText, false);
 

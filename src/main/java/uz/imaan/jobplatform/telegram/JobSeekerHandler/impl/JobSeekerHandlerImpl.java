@@ -51,14 +51,14 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
-    // ===== INJECTED REPOSITORIES =====
+    // ===== REPOSITORIES =====
     private final JobSeekerProfileRepository jobSeekerProfileRepository;
     private final JobApplicationRepository jobApplicationRepository;
     private final JobVacancyRepository jobVacancyRepository;
     private final BankCardRepository bankCardRepository;
     private final SubscriptionRepository subscriptionRepository;
 
-    // ===== INJECTED SERVICES =====
+    // ===== SERVICES =====
     private final JobStore jobStore;
     private final WalletService walletService;
     private final EmployerHandler employerHandler;
@@ -77,21 +77,16 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return profileOpt.isPresent() && "ru".equals(profileOpt.get().getLanguage());
     }
 
-    private boolean isEnglish(Optional<JobSeekerProfile> profileOpt) {
-        return profileOpt.isPresent() && "en".equals(profileOpt.get().getLanguage());
+    private String getText(Optional<JobSeekerProfile> profileOpt, Long chatId, String ru, String uz) {
+        if (profileOpt.isPresent()) {
+            return "ru".equals(profileOpt.get().getLanguage()) ? ru : uz;
+        }
+        String tempLang = stateManager.getData(chatId, "tempLanguage");
+        return "ru".equals(tempLang) ? ru : uz;
     }
 
     private String getText(Optional<JobSeekerProfile> profileOpt, Long chatId, String ru, String uz, String en) {
-        if (profileOpt.isPresent()) {
-            String lang = profileOpt.get().getLanguage();
-            if ("ru".equals(lang)) return ru;
-            if ("en".equals(lang)) return en;
-            return uz;
-        }
-        String tempLang = stateManager.getData(chatId, "tempLanguage");
-        if ("ru".equals(tempLang)) return ru;
-        if ("en".equals(tempLang)) return en;
-        return uz;
+        return getText(profileOpt, chatId, ru, uz);
     }
 
     // ============================================
@@ -131,22 +126,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         }
     }
 
-    private void executePhoto(SendPhoto sendPhoto) {
-        try {
-            Telegram bot = applicationContext.getBean(Telegram.class);
-            bot.execute(sendPhoto);
-        } catch (Exception e) {
-            log.error("❌ Rasm yuborishda xatolik: {}", e.getMessage(), e);
-            try {
-                Telegram bot = applicationContext.getBean(Telegram.class);
-                sendPhoto.setParseMode(null);
-                bot.execute(sendPhoto);
-            } catch (Exception ex) {
-                log.error("❌ Rasm qayta yuborishda ham xatolik: {}", ex.getMessage());
-            }
-        }
-    }
-
     private InlineKeyboardMarkup getLanguageInlineKeyboard() {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -154,14 +133,12 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         List<InlineKeyboardButton> row = new ArrayList<>();
         row.add(InlineKeyboardButton.builder().text("🇺🇿 O'zbek").callbackData("lang_uz").build());
         row.add(InlineKeyboardButton.builder().text("🇷🇺 Русский").callbackData("lang_ru").build());
-        row.add(InlineKeyboardButton.builder().text("🇬🇧 English").callbackData("lang_en").build());
 
         rows.add(row);
         markup.setKeyboard(rows);
         return markup;
     }
 
-    // ⭐️ TAHRIRLASH ICHKI MENYUSI KLAVIATURASI
     private ReplyKeyboardMarkup getEditProfileKeyboard(Optional<JobSeekerProfile> profileOpt) {
         ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
         markup.setResizeKeyboard(true);
@@ -169,18 +146,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         List<KeyboardRow> keyboard = new ArrayList<>();
 
         KeyboardRow row1 = new KeyboardRow();
-        row1.add(new KeyboardButton(isRussian(profileOpt) ? "👤 Ф.И.О" : (isEnglish(profileOpt) ? "👤 Full Name" : "👤 Ism-familiya")));
-        row1.add(new KeyboardButton(isRussian(profileOpt) ? "🪪 Паспорт" : (isEnglish(profileOpt) ? "🪪 Passport" : "🪪 Pasport")));
+        row1.add(new KeyboardButton(isRussian(profileOpt) ? "👤 Ф.И.О" : "👤 Ism-familiya"));
+        row1.add(new KeyboardButton(isRussian(profileOpt) ? "🪪 Паспорт" : "🪪 Pasport"));
 
         KeyboardRow row2 = new KeyboardRow();
-        row2.add(new KeyboardButton(isRussian(profileOpt) ? "💼 Профессия" : (isEnglish(profileOpt) ? "💼 Profession" : "💼 Kasb")));
-        row2.add(new KeyboardButton(isRussian(profileOpt) ? "📝 Опыт работы" : (isEnglish(profileOpt) ? "📝 Work experience" : "📝 Ish tajribasi")));
+        row2.add(new KeyboardButton(isRussian(profileOpt) ? "💼 Профессия" : "💼 Kasb"));
+        row2.add(new KeyboardButton(isRussian(profileOpt) ? "📝 Опыт работы" : "📝 Ish tajribasi"));
 
         KeyboardRow row3 = new KeyboardRow();
-        row3.add(new KeyboardButton(isRussian(profileOpt) ? "📞 Номер телефона" : (isEnglish(profileOpt) ? "📞 Phone number" : "📞 Telefon raqam")));
+        row3.add(new KeyboardButton(isRussian(profileOpt) ? "📞 Номер телефона" : "📞 Telefon raqam"));
 
         KeyboardRow row4 = new KeyboardRow();
-        row4.add(new KeyboardButton(isRussian(profileOpt) ? "⬅️ Назад в профиль" : (isEnglish(profileOpt) ? "⬅️ Back to profile" : "⬅️ Profilga qaytish")));
+        row4.add(new KeyboardButton(isRussian(profileOpt) ? "⬅️ Назад в профиль" : "⬅️ Profilga qaytish"));
 
         keyboard.add(row1);
         keyboard.add(row2);
@@ -190,9 +167,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return markup;
     }
 
-    // ============================================
-    // KARTA NIQOBLASH VA LUHN VALIDATSIYASI
-    // ============================================
     private String maskCardNumber(String cardNumber) {
         if (cardNumber == null || cardNumber.isBlank()) return "Mavjud emas";
         String clean = cardNumber.replaceAll("\\s+", "");
@@ -220,6 +194,13 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return (sum % 10 == 0);
     }
 
+    // ⭐️ PASPORT FORMATINI TEKSHIRISH (2 ta lotin harfi va 7 ta raqam: AA1234567)
+    private boolean isValidPassport(String passport) {
+        if (passport == null || passport.isBlank()) return false;
+        String clean = passport.replaceAll("\\s+", "").toUpperCase();
+        return clean.matches("^[A-Z]{2}\\d{7}$");
+    }
+
     // ============================================
     // ASOSIY HANDLE METODI
     // ============================================
@@ -244,36 +225,21 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                         keyboardService.getMainMenuText(profileOpt),
                         keyboardService.getMainMenuKeyboard(profileOpt));
             } else {
-                String tempLang = stateManager.getData(chatId, "tempLanguage");
-                if (tempLang != null && !tempLang.isEmpty()) {
-                    stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
-                    stateManager.putData(chatId, "registration", "true");
-                    String msg = getText(profileOpt, chatId,
-                            "👤 **Регистрация в качестве соискателя:**\n\nВведите ваше имя и фамилию.\n💡 *Пример:* `Ali Valiyev`",
-                            "👤 **Ish izlovchi sifatida ro'yxatdan o'tish:**\n\nIltimos, ism va familiyangizni kiriting.\n💡 *Misol:* `Ali Valiyev`",
-                            "👤 **Registration as a job seeker:**\n\nPlease enter your first and last name.\n💡 *Example:* `Ali Valiyev`"
-                    );
-                    return createMessage(chatId, msg, (ReplyKeyboard) null);
-                } else {
-                    stateManager.setState(chatId, JobSeekerState.WAITING_FOR_LANGUAGE);
-                    stateManager.putData(chatId, "registration", "true");
-                    String welcomeMsg = "🌐 **Xush kelibsiz!**\n\n" +
-                            "Iltimos, tilni tanlang / Пожалуйста, выберите язык / Please select language:";
-                    return createMessage(chatId, welcomeMsg, getLanguageInlineKeyboard());
-                }
+                stateManager.setState(chatId, JobSeekerState.WAITING_FOR_LANGUAGE);
+                stateManager.putData(chatId, "registration", "true");
+                String welcomeMsg = "🌐 **Xush kelibsiz!**\n\nIltimos, tilni tanlang / Пожалуйста, выберите язык:";
+                return createMessage(chatId, welcomeMsg, getLanguageInlineKeyboard());
             }
         }
 
-        // ===== TO'G'RILANGAN NAVIGATSIYA (BEKOR QILISH VA ORQAGA) =====
-        if (text.equals("⬅️ Profilga qaytish") || text.equals("⬅️ Назад в профиль") || text.equals("⬅️ Back to profile")) {
+        // ===== BEKOR QILISH VA ORQAGA =====
+        if (text.equals("⬅️ Profilga qaytish") || text.equals("⬅️ Назад в профиль")) {
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             return showProfile(chatId, profileOpt);
         }
 
-        // A) Bekor qilish bosilganda
         if (text.equals("❌ Bekor qilish") || text.contains("Bekor qilish") ||
-                text.equals("Отмена") || text.contains("Отмена") ||
-                text.equals("Cancel") || text.contains("Cancel")) {
+                text.equals("Отмена") || text.contains("Отмена")) {
 
             if (state == JobSeekerState.EDIT_MENU ||
                     state == JobSeekerState.WAITING_FOR_EDIT_NAME ||
@@ -299,8 +265,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
-        // B) Orqaga bosilganda
-        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
+        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
             if (state == JobSeekerState.EDIT_MENU ||
                     state == JobSeekerState.WAITING_FOR_EDIT_NAME ||
                     state == JobSeekerState.WAITING_FOR_EDIT_PASSPORT ||
@@ -319,19 +284,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
-        if (text.equals("🏠 Главное меню") || text.equals("Asosiy menyu") || text.equals("🏠 Main menu") || text.equals("🏠 Asosiy menyu")) {
+        if (text.equals("🏠 Главное меню") || text.equals("Asosiy menyu") || text.equals("🏠 Asosiy menyu")) {
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
             return createMessage(chatId, keyboardService.getMainMenuText(profileOpt),
                     keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
-        // ===== 1. «✏️ TAHRIRLASH» BOSILGANDA =====
-        if (text.equals("✏️ Tahrirlash") || text.contains("Tahrirlash") || text.contains("Редактировать") || text.contains("Edit")) {
+        // ===== 1. «✏️ TAHRIRLASH» =====
+        if (text.equals("✏️ Tahrirlash") || text.contains("Tahrirlash") || text.contains("Редактировать")) {
             stateManager.setState(chatId, JobSeekerState.EDIT_MENU);
             String promptMsg = getText(profileOpt, chatId,
                     "✏️ <b>Какую информацию вы хотите изменить?</b>\nВыберите один из разделов ниже:",
-                    "✏️ <b>Qaysi ma'lumotingizni o'zgartirmoqchisiz?</b>\nPastdagi bo'limlardan birini tanlang:",
-                    "✏️ <b>What information would you like to edit?</b>\nSelect one of the sections below:"
+                    "✏️ <b>Qaysi ma'lumotingizni o'zgartirmoqchisiz?</b>\nPastdagi bo'limlardan birini tanlang:"
             );
             SendMessage msg = new SendMessage(chatId.toString(), promptMsg);
             msg.setParseMode("HTML");
@@ -341,7 +305,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         // ===== 2. TAHRIRLASH MENYUSIDAGI TANLOVLAR =====
         if (state == JobSeekerState.EDIT_MENU && message.hasText()) {
-            if (text.equals("👤 Ism-familiya") || text.contains("Ism") || text.contains("Ф.И.О") || text.contains("Name")) {
+            if (text.equals("👤 Ism-familiya") || text.contains("Ism") || text.contains("Ф.И.О")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EDIT_NAME);
                 SendMessage msg = new SendMessage(chatId.toString(), "👤 Yangi ism va familiyangizni kiriting:\n<i>(Masalan: Ali Valiyev)</i>");
                 msg.setParseMode("HTML");
@@ -349,7 +313,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return msg;
             }
 
-            if (text.equals("🪪 Pasport") || text.contains("Pasport") || text.contains("Паспорт") || text.contains("Passport")) {
+            if (text.equals("🪪 Pasport") || text.contains("Pasport") || text.contains("Паспорт")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EDIT_PASSPORT);
                 SendMessage msg = new SendMessage(chatId.toString(), "🪪 Yangi pasport seriya va raqamingizni kiriting:\n<i>(Masalan: AA1234567)</i>");
                 msg.setParseMode("HTML");
@@ -357,7 +321,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return msg;
             }
 
-            if (text.equals("💼 Kasb") || text.contains("Kasb") || text.contains("Профессия") || text.contains("Profession")) {
+            if (text.equals("💼 Kasb") || text.contains("Kasb") || text.contains("Профессия")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PROFESSION);
                 SendMessage msg = new SendMessage(chatId.toString(), "💼 Yangi kasbingizni tanlang:");
                 msg.setParseMode("HTML");
@@ -365,7 +329,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return msg;
             }
 
-            if (text.equals("📝 Ish tajribasi") || text.contains("tajriba") || text.contains("Опыт") || text.contains("experience") || text.contains("Tajriba")) {
+            if (text.equals("📝 Ish tajribasi") || text.contains("tajriba") || text.contains("Опыт")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EDIT_EXPERIENCE);
                 SendMessage msg = new SendMessage(chatId.toString(), "📝 Ish tajribangizni kiriting:\n<i>(Masalan: 3 yil Java backend)</i>");
                 msg.setParseMode("HTML");
@@ -373,7 +337,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return msg;
             }
 
-            if (text.equals("📞 Telefon raqam") || text.contains("Telefon") || text.contains("Номер") || text.contains("Phone")) {
+            if (text.equals("📞 Telefon raqam") || text.contains("Telefon") || text.contains("Номер")) {
                 stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EDIT_PHONE);
                 SendMessage msg = new SendMessage(chatId.toString(), "📞 Yangi telefon raqamingizni kiriting:\n<i>(Masalan: +998901234567)</i>");
                 msg.setParseMode("HTML");
@@ -382,7 +346,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== 3. KIRITILGAN TAHRIRNI SAQLASH VA DARHOL PROFILGA QAYTISH =====
+        // ===== 3. TAHRIRNI SAQLASH =====
         if (state == JobSeekerState.WAITING_FOR_EDIT_NAME && message.hasText() && profileOpt.isPresent()) {
             JobSeekerProfile profile = profileOpt.get();
             profile.setFullName(text.trim());
@@ -391,22 +355,31 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             String okMsg = getText(profileOpt, chatId,
                     "✅ <b>Ваше имя успешно обновлено!</b>",
-                    "✅ <b>Ism-familiyangiz muvaffaqiyatli yangilandi!</b>",
-                    "✅ <b>Your name has been updated successfully!</b>");
+                    "✅ <b>Ism-familiyangiz muvaffaqiyatli yangilandi!</b>");
             executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
 
+        // ⭐️ TAHRIRLASHDA PASPORT VALIDATSIYASI
         if (state == JobSeekerState.WAITING_FOR_EDIT_PASSPORT && message.hasText() && profileOpt.isPresent()) {
+            String cleanPassport = text.replaceAll("\\s+", "").toUpperCase();
+
+            if (!isValidPassport(cleanPassport)) {
+                String errorMsg = getText(profileOpt, chatId,
+                        "❌ **Неверный формат паспорта!**\n\nПаспорт должен состоять из 2 латинских букв и 7 цифр.\n💡 *Пример:* `AA1234567`",
+                        "❌ **Pasport seriya va raqami noto'g'ri kiritildi!**\n\nPasport 2 ta lotin harfi va 7 ta raqamdan iborat bo'lishi shart.\n💡 *Misol:* `AA1234567`"
+                );
+                return createMessage(chatId, errorMsg, keyboardService.getCancelKeyboard(profileOpt));
+            }
+
             JobSeekerProfile profile = profileOpt.get();
-            profile.setPassportNumber(text.trim().toUpperCase());
+            profile.setPassportNumber(cleanPassport);
             jobSeekerProfileRepository.save(profile);
 
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             String okMsg = getText(profileOpt, chatId,
                     "✅ <b>Паспортные данные успешно обновлены!</b>",
-                    "✅ <b>Pasport ma'lumotlaringiz yangilandi!</b>",
-                    "✅ <b>Passport information updated successfully!</b>");
+                    "✅ <b>Pasport ma'lumotlaringiz yangilandi!</b>");
             executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
@@ -419,8 +392,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
             String okMsg = getText(profileOpt, chatId,
                     "✅ <b>Опыт работы успешно обновлен!</b>",
-                    "✅ <b>Ish tajribangiz yangilandi!</b>",
-                    "✅ <b>Work experience updated successfully!</b>");
+                    "✅ <b>Ish tajribangiz yangilandi!</b>");
             executeMessage(createHtmlMessage(chatId, okMsg, null));
             return showProfile(chatId, Optional.of(profile));
         }
@@ -441,20 +413,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
                 String okMsg = getText(profileOpt, chatId,
                         "✅ <b>Номер телефона успешно обновлен!</b>",
-                        "✅ <b>Telefon raqamingiz yangilandi!</b>",
-                        "✅ <b>Phone number updated successfully!</b>");
+                        "✅ <b>Telefon raqamingiz yangilandi!</b>");
                 executeMessage(createHtmlMessage(chatId, okMsg, null));
                 return showProfile(chatId, Optional.of(profile));
             } else {
                 String errPhone = getText(profileOpt, chatId,
                         "❌ Номер телефона не получен. Введите номер или отправьте контакт:",
-                        "❌ Telefon raqam olinmadi. Iltimos, raqamni yozing yoki kontakt orqali yuboring:",
-                        "❌ Phone number not received. Please type or share contact:");
+                        "❌ Telefon raqam olinmadi. Iltimos, raqamni yozing yoki kontakt orqali yuboring:");
                 return createMessage(chatId, errPhone, keyboardService.getPhoneKeyboard());
             }
         }
 
-        // ===== KASBNI TEXT SIFATIDA O'ZGARTIRISH =====
+        // ===== KASBNI O'ZGARTIRISH =====
         if (state == JobSeekerState.WAITING_FOR_PROFESSION && message.hasText()) {
             return handleProfessionUpdate(chatId, text, profileOpt);
         }
@@ -467,7 +437,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return handleCardHolder(chatId, text, profileOpt);
         }
 
-        // ===== TIL TANLASH =====
+        // ===== TIL TANLASH (MATNLI VARIANTDA) =====
         if (state == JobSeekerState.WAITING_FOR_LANGUAGE && message.hasText()) {
             return handleLanguageSelection(chatId, text, profileOpt);
         }
@@ -477,7 +447,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return handlePortfolioInput(chatId, text, profileOpt);
         }
 
-        // ===== RASM (AVATAR) YUKLASH =====
+        // ===== RASM YUKLASH =====
         if (state == JobSeekerState.WAITING_FOR_PHOTO) {
             boolean isImageDoc = message.hasDocument() &&
                     message.getDocument().getMimeType() != null &&
@@ -488,8 +458,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
             String msg = getText(profileOpt, chatId,
                     "❌ Пожалуйста, отправьте именно фото!",
-                    "❌ Iltimos, faqat rasm yuboring!",
-                    "❌ Please send an image photo!"
+                    "❌ Iltimos, faqat rasm yuboring!"
             );
             return createMessage(chatId, msg, keyboardService.getCancelKeyboard(profileOpt));
         }
@@ -506,19 +475,30 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PASSPORT);
             String msg = getText(profileOpt, chatId,
                     "🪪 **Введите серию и номер паспорта:**\n\n💡 *Пример:* `AA1234567`",
-                    "🪪 **Pasport seriya va raqamingizni kiriting:**\n\n💡 *Misol:* `AA1234567`",
-                    "🪪 **Enter your passport series and number:**\n\n💡 *Example:* `AA1234567`"
+                    "🪪 **Pasport seriya va raqamingizni kiriting:**\n\n💡 *Misol:* `AA1234567`"
             );
             return createMessage(chatId, msg, (ReplyKeyboard) null);
         }
 
+        // ⭐️ RO'YXATDAN O'TISHDA PASPORT VALIDATSIYASI
         if (state == JobSeekerState.WAITING_FOR_PASSPORT && message.hasText()) {
-            stateManager.putData(chatId, "passport", text);
+            String cleanPassport = text.replaceAll("\\s+", "").toUpperCase();
+
+            if (!isValidPassport(cleanPassport)) {
+                String errorMsg = getText(profileOpt, chatId,
+                        "❌ **Неверный формат серии и номера паспорта!**\n\n" +
+                                "Паспорт должен состоять из 2 латинских букв и 7 цифр.\n💡 *Пример:* `AA1234567`",
+                        "❌ **Pasport seriya va raqami noto'g'ri kiritildi!**\n\n" +
+                                "Pasport 2 ta lotin harfi va 7 ta raqamdan iborat bo'lishi shart.\n💡 *Misol:* `AA1234567`"
+                );
+                return createMessage(chatId, errorMsg, (ReplyKeyboard) null);
+            }
+
+            stateManager.putData(chatId, "passport", cleanPassport);
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PHONE);
             String msg = getText(profileOpt, chatId,
                     "📱 **Отправьте свой номер телефона:**",
-                    "📱 **Telefon raqamingizni yuboring:**",
-                    "📱 **Send your phone number:**"
+                    "📱 **Telefon raqamingizni yuboring:**"
             );
             return createMessage(chatId, msg, keyboardService.getPhoneKeyboard());
         }
@@ -547,7 +527,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         switch (text) {
             case "🔍 Ish qidirish":
             case "🔍 Поиск работы":
-            case "🔍 Job search":
                 stateManager.setState(chatId, JobSeekerState.JOB_SEARCH);
                 String searchMsg = "📂 <b>Kategoriyalardan birini tanlang</b> yoki qidirayotgan kasbingizni to'g'ridan-to'g'ri yozib yuboring:\n\n" +
                         "💡 <i>Masalan: Java, Kassir, Haydovchi, Administrator, Qo'riqchi</i>";
@@ -555,7 +534,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
             case "⭐ Saralanganlar":
             case "⭐ Избранное":
-            case "⭐ Favorites":
             case "Saralanganlar":
                 Telegram bot = applicationContext.getBean(Telegram.class);
                 TelegramCallbackService callbackService = applicationContext.getBean(TelegramCallbackService.class);
@@ -564,36 +542,30 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
             case "⚡ Faol ishlarim":
             case "⚡ Мои активные работы":
-            case "⚡ My active jobs":
                 stateManager.setState(chatId, JobSeekerState.ACTIVE_JOBS);
                 String activeMsg = getText(profileOpt, chatId,
                         "⚡ **Раздел моих активных работ:**",
-                        "⚡ **Faol ishlarim bo'limi:**",
-                        "⚡ **My active jobs section:**"
+                        "⚡ **Faol ishlarim bo'limi:**"
                 );
                 return createMessage(chatId, activeMsg, keyboardService.getActiveJobsKeyboard(profileOpt));
 
             case "👤 Profilim":
             case "👤 Мой профиль":
-            case "👤 My profile":
                 stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
                 return showProfile(chatId, profileOpt);
 
             case "📂 Arizalar":
             case "📂 Мои заявки":
-            case "📂 My applications":
                 stateManager.setState(chatId, JobSeekerState.APPLICATIONS);
                 return handleShowApplications(chatId, profileOpt);
 
             case "💳 Hamyon":
             case "💳 Кошелек":
-            case "💳 Wallet":
                 stateManager.setState(chatId, JobSeekerState.WALLET_MENU);
                 return showWallet(chatId, profileOpt);
 
             case "⚙️ Sozlamalar":
             case "⚙️ Настройки":
-            case "⚙️ Settings":
                 stateManager.setState(chatId, JobSeekerState.SETTINGS_MENU);
                 return handleSettingsMenu(chatId, text, profileOpt);
         }
@@ -612,7 +584,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         // ===== FAOL ISHLAR =====
         if (state == JobSeekerState.ACTIVE_JOBS) {
-            if (text.contains("Joriy ishlar") || text.contains("Текущие работы") || text.contains("Current jobs")) {
+            if (text.contains("Joriy ishlar") || text.contains("Текущие работы")) {
                 if (profileOpt.isEmpty()) {
                     return createHtmlMessage(chatId, "❌ Profil topilmadi!", keyboardService.getActiveJobsKeyboard(profileOpt));
                 }
@@ -626,8 +598,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 if (activeJobs.isEmpty()) {
                     String msg = getText(profileOpt, chatId,
                             "📋 На данный момент у вас нет активных работ.",
-                            "📋 Hozircha qabul qilingan faol ishlaringiz mavjud emas.",
-                            "📋 You have no active jobs at the moment."
+                            "📋 Hozircha qabul qilingan faol ishlaringiz mavjud emas."
                     );
                     return createHtmlMessage(chatId, msg, keyboardService.getActiveJobsKeyboard(profileOpt));
                 }
@@ -635,8 +606,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 StringBuilder sb = new StringBuilder();
                 sb.append(getText(profileOpt, chatId,
                         "💼 <b>Ваши текущие (активные) работы:</b>\n\n",
-                        "💼 <b>Sizning joriy (faol) ishlaringiz:</b>\n\n",
-                        "💼 <b>Your current active jobs:</b>\n\n"
+                        "💼 <b>Sizning joriy (faol) ishlaringiz:</b>\n\n"
                 ));
 
                 List<JobVacancy> allVacancies = jobStore.getAllVacancies();
@@ -663,12 +633,10 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 return createHtmlMessage(chatId, sb.toString(), keyboardService.getActiveJobsKeyboard(profileOpt));
             }
 
-            if (text.contains("Topshiriqlar") || text.contains("Задания") || text.contains("Tasks") ||
-                    text.contains("Vazifalar") || text.contains("Задачи") || text.contains("Assignments")) {
+            if (text.contains("Topshiriqlar") || text.contains("Задания") || text.contains("Vazifalar") || text.contains("Задачи")) {
                 String msg = getText(profileOpt, chatId,
                         "📝 У вас пока нет назначенных задач.",
-                        "📝 Hozircha sizga berilgan faol vazifalar yoki topshiriqlar mavjud emas.",
-                        "📝 You have no assigned tasks yet."
+                        "📝 Hozircha sizga berilgan faol vazifalar yoki topshiriqlar mavjud emas."
                 );
                 return createHtmlMessage(chatId, msg, keyboardService.getActiveJobsKeyboard(profileOpt));
             }
@@ -678,7 +646,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return handleSettingsMenu(chatId, text, profileOpt);
         }
 
-        // ⭐️ ERKIN MATN ORQALI QIDIRUV
+        // Qidiruv
         if (message.hasText() && !text.startsWith("/") && text.length() >= 2) {
             if (state == JobSeekerState.JOB_SEARCH || state == JobSeekerState.MAIN_MENU || state == JobSeekerState.NONE) {
                 stateManager.setState(chatId, JobSeekerState.JOB_SEARCH);
@@ -688,8 +656,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String defaultMsg = getText(profileOpt, chatId,
                 "Пожалуйста, выберите один из вариантов.",
-                "Iltimos, tugmalardan birini tanlang.",
-                "Please select one of the options."
+                "Iltimos, tugmalardan birini tanlang."
         );
         return createMessage(chatId, defaultMsg, keyboardService.getMainMenuKeyboard(profileOpt));
     }
@@ -703,22 +670,10 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return createMessage(chatId, keyboardService.getMainMenuText(profileOpt),
                     keyboardService.getMainMenuKeyboard(profileOpt));
         } else {
-            String tempLang = stateManager.getData(chatId, "tempLanguage");
-            if (tempLang != null && !tempLang.isEmpty()) {
-                stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
-                stateManager.putData(chatId, "registration", "true");
-                String msg = getText(profileOpt, chatId,
-                        "👤 **Регистрация в качестве соискателя:**\n\nВведите ваше имя и фамилию.\n💡 *Пример:* `Ali Valiyev`",
-                        "👤 **Ish izlovchi sifatida ro'yxatdan o'tish:**\n\nIltimos, ism va familiyangizni kiriting.\n💡 *Misol:* `Ali Valiyev`",
-                        "👤 **Registration as a job seeker:**\n\nPlease enter your first and last name.\n💡 *Example:* `Ali Valiyev`"
-                );
-                return createMessage(chatId, msg, (ReplyKeyboard) null);
-            } else {
-                stateManager.setState(chatId, JobSeekerState.WAITING_FOR_LANGUAGE);
-                stateManager.putData(chatId, "registration", "true");
-                String msg = "🌐 **Xush kelibsiz!**\n\nIltimos, tilni tanlang / Пожалуйста, выберите язык / Please select language:";
-                return createMessage(chatId, msg, getLanguageInlineKeyboard());
-            }
+            stateManager.setState(chatId, JobSeekerState.WAITING_FOR_LANGUAGE);
+            stateManager.putData(chatId, "registration", "true");
+            String msg = "🌐 **Xush kelibsiz!**\n\nIltimos, tilni tanlang / Пожалуйста, выберите язык:";
+            return createMessage(chatId, msg, getLanguageInlineKeyboard());
         }
     }
 
@@ -749,15 +704,13 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_JOB_TYPE);
             String msg = getText(Optional.of(profile), chatId,
                     "🛠 **Какую работу вы ищете?**\n\nПожалуйста, выберите один из вариантов:",
-                    "🛠 **Qanday turdagi ish qidiryapsiz?**\n\nIltimos, quyidagi tugmalardan birini tanlang:",
-                    "🛠 **What type of job are you looking for?**\n\nPlease select one of the options:"
+                    "🛠 **Qanday turdagi ish qidiryapsiz?**\n\nIltimos, quyidagi tugmalardan birini tanlang:"
             );
             return createMessage(chatId, msg, keyboardService.getJobTypeKeyboard(Optional.of(profile)));
         } else {
             String msg = getText(profileOpt, chatId,
                     "❌ Номер телефона не отправлен. Пожалуйста, используйте кнопку ниже:",
-                    "❌ Telefon raqam yuborilmadi. Iltimos, pastdagi tugma orqali yuboring:",
-                    "❌ Phone number not sent. Please use the button below:"
+                    "❌ Telefon raqam yuborilmadi. Iltimos, pastdagi tugma orqali yuboring:"
             );
             return createMessage(chatId, msg, keyboardService.getPhoneKeyboard());
         }
@@ -766,7 +719,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     private SendMessage handleJobTypeSelection(Long chatId, String text, Optional<JobSeekerProfile> profileOpt) {
         String jobType = text;
 
-        if (jobType.equals("🔧 Oddiy ishchi") || jobType.equals("🔧 Обычный рабочий") || jobType.equals("🔧 Ordinary worker")) {
+        if (jobType.equals("🔧 Oddiy ishchi") || jobType.equals("🔧 Обычный рабочий")) {
             JobSeekerProfile profile = profileOpt.orElseThrow(() -> new RuntimeException("Profil topilmadi!"));
             profile.setPreferredJobType("Oddiy ishchi");
             profile.setProfession("Oddiy ishchi");
@@ -777,18 +730,16 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
             String msg = getText(Optional.of(profile), chatId,
                     "✅ **Вы успешно зарегистрировались!**\n\n🔧 **Тип работы:** Обычный рабочий",
-                    "✅ **Muvaffaqiyatli ro'yxatdan o'tdingiz!**\n\n🔧 **Ish turi:** Oddiy ishchi",
-                    "✅ **You have successfully registered!**\n\n🔧 **Job type:** Ordinary worker"
+                    "✅ **Muvaffaqiyatli ro'yxatdan o'tdingiz!**\n\n🔧 **Ish turi:** Oddiy ishchi"
             );
             return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(Optional.of(profile)));
         }
 
-        if (jobType.equals("👨‍💻 Kasbim bo'yicha") || jobType.equals("👨‍💻 По профессии") || jobType.equals("👨‍💻 By profession")) {
+        if (jobType.equals("👨‍💻 Kasbim bo'yicha") || jobType.equals("👨‍💻 По профессии")) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_CATEGORY);
             String msg = getText(profileOpt, chatId,
                     "📂 **Выберите категорию, соответствующую вашей профессии:**",
-                    "📂 **Kasbingizga mos kategoriyani tanlang:**",
-                    "📂 **Select the category matching your profession:**"
+                    "📂 **Kasbingizga mos kategoriyani tanlang:**"
             );
             return createMessage(chatId, msg, keyboardService.getCategoryInlineKeyboard(profileOpt));
         }
@@ -796,8 +747,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         return createMessage(chatId,
                 getText(profileOpt, chatId,
                         "❌ Пожалуйста, выберите один из вариантов:",
-                        "❌ Iltimos, quyidagi tugmalardan birini tanlang:",
-                        "❌ Please select one of the options:"
+                        "❌ Iltimos, quyidagi tugmalardan birini tanlang:"
                 ),
                 keyboardService.getJobTypeKeyboard(profileOpt));
     }
@@ -810,8 +760,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         stateManager.setState(chatId, JobSeekerState.WAITING_FOR_EXPERIENCE);
         String msg = getText(profileOpt, chatId,
                 "📝 **Расскажите о своем опыте работы:**\n\nСколько времени вы работаете?\n💡 *Пример:* `3 года Java разработчиком`",
-                "📝 **Ish tajribangiz haqida ma'lumot bering:**\n\nQancha vaqtdan beri ishlayapsiz?\n💡 *Misol:* `3 yil Java dasturchi`",
-                "📝 **Tell us about your work experience:**\n\nHow long have you been working?\n💡 *Example:* `3 years Java developer`"
+                "📝 **Ish tajribangiz haqida ma'lumot bering:**\n\nQancha vaqtdan beri ishlayapsiz?\n💡 *Misol:* `3 yil Java dasturchi`"
         );
         return createMessage(chatId, msg, keyboardService.getCancelKeyboard(profileOpt));
     }
@@ -823,6 +772,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         profile.setExperience(stateManager.getData(chatId, "experience"));
         profile.setProfession(stateManager.getData(chatId, "profession"));
         profile.setCategory(stateManager.getData(chatId, "category"));
+        profile.setPreferredJobType("Kasbim bo'yicha");
         jobSeekerProfileRepository.save(profile);
 
         if (profile.getCategory() != null) {
@@ -852,13 +802,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                                 "💼 **Kasbingiz:** %s\n" +
                                 "📝 **Tajribangiz:** %s",
                         profile.getCategory(), profile.getProfession(), profile.getExperience()
-                ),
-                String.format(
-                        "✅ **You have successfully registered!**\n\n" +
-                                "📂 **Category:** %s\n" +
-                                "💼 **Your profession:** %s\n" +
-                                "📝 **Your experience:** %s",
-                        profile.getCategory(), profile.getProfession(), profile.getExperience()
                 )
         );
         return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(Optional.of(profile)));
@@ -869,6 +812,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         JobSeekerProfile profile = profileOpt.orElseThrow(() -> new RuntimeException("Profil topilmadi!"));
         profile.setProfession(profession);
         profile.setCategory(profession);
+        profile.setPreferredJobType("Kasbim bo'yicha");
         jobSeekerProfileRepository.save(profile);
 
         if (profile.getCategory() != null) {
@@ -884,8 +828,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         stateManager.setState(chatId, JobSeekerState.PROFILE_MENU);
         String msg = getText(profileOpt, chatId,
                 "✅ Профессия успешно обновлена!\n\n💼 Новая профессия: `" + profession + "`",
-                "✅ Kasb muvaffaqiyatli yangilandi!\n\n💼 Yangi kasb: `" + profession + "`",
-                "✅ Profession successfully updated!\n\n💼 New profession: `" + profession + "`"
+                "✅ Kasb muvaffaqiyatli yangilandi!\n\n💼 Yangi kasb: `" + profession + "`"
         );
         executeMessage(createMessage(chatId, msg, null));
         return showProfile(chatId, Optional.of(profile));
@@ -945,8 +888,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
         String msg = getText(profileOpt, chatId,
                 "✅ **Заявка отправлена!**",
-                "✅ **Ariza yuborildi!**",
-                "✅ **Application sent!**"
+                "✅ **Ariza yuborildi!**"
         );
         return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
     }
@@ -975,19 +917,17 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             } catch (Exception e) {
                 String msg = getText(profileOpt, chatId,
                         "Ошибка при загрузке информации о вакансии.",
-                        "Vakansiya ma'lumotlarini yuklashda xatolik.",
-                        "Error loading vacancy information."
+                        "Vakansiya ma'lumotlarini yuklashda xatolik."
                 );
                 return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
             }
         }
 
-        if (text.equals("📝 Ariza berish") || text.equals("📝 Подать заявку") || text.equals("📝 Submit application")) {
+        if (text.equals("📝 Ariza berish") || text.equals("📝 Подать заявку")) {
             stateManager.setState(chatId, JobSeekerState.APPLY_COMMENT);
             String msg = getText(profileOpt, chatId,
                     "✍️ **Напишите сопроводительное письмо:**\n\nКратко расскажите о себе и своем опыте:",
-                    "✍️ **Cover letter (Izoh) yozing:**\n\nO'zingiz va tajribangiz haqida qisqacha ma'lumot qoldiring:",
-                    "✍️ **Write a cover letter:**\n\nBriefly tell about yourself and your experience:"
+                    "✍️ **Cover letter (Izoh) yozing:**\n\nO'zingiz va tajribangiz haqida qisqacha ma'lumot qoldiring:"
             );
             return createMessage(chatId, msg, keyboardService.getCancelKeyboard(profileOpt));
         }
@@ -995,7 +935,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     }
 
     // ============================================
-    // PROFIL METODLARI (AVATAR INTEGRATSIYASI BILAN)
+    // PROFIL METODLARI
     // ============================================
 
     @Override
@@ -1003,8 +943,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (profileOpt.isEmpty()) {
             String msg = getText(profileOpt, chatId,
                     "❌ Вы еще не зарегистрированы!",
-                    "❌ Siz hali ro'yxatdan o'tmagansiz!",
-                    "❌ You are not registered yet!"
+                    "❌ Siz hali ro'yxatdan o'tmagansiz!"
             );
             return createHtmlMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1012,7 +951,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         JobSeekerProfile profile = profileOpt.get();
         String profileInfoText = getProfileInfo(profile, profileOpt);
 
-        // 1. Agar rasm mavjud bo'lsa, uni HTML rejimida yuborishga urinadi
         if (profile.getPhotoFileId() != null && !profile.getPhotoFileId().isBlank()) {
             try {
                 SendPhoto sendPhoto = new SendPhoto();
@@ -1026,12 +964,10 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 bot.execute(sendPhoto);
                 return null;
             } catch (Exception e) {
-                log.warn("⚠️ Profil rasmini yuborishda xatolik, matn ko'rinishida chiqariladi: {}", e.getMessage());
-                // Rasm xato bersa, dastur to'xtab qolmaydi — pastdagi createHtmlMessage ishga tushadi
+                log.warn("⚠️ Profil rasmini yuborishda xatolik: {}", e.getMessage());
             }
         }
 
-        // 2. Rasm bo'lmasa yoki rasm xato bersa — toza HTML xabar yuboriladi
         return createHtmlMessage(chatId, profileInfoText, keyboardService.getProfileKeyboard(profileOpt));
     }
 
@@ -1040,35 +976,32 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         JobSeekerProfile profile = profileOpt.orElse(new JobSeekerProfile());
         double rating = profile.getRating() != null ? profile.getRating() : 0.0;
 
-        if (text.contains("Ma'lumotlar") || text.contains("Информация") || text.contains("Information")) {
+        if (text.contains("Ma'lumotlar") || text.contains("Информация")) {
             return showProfile(chatId, profileOpt);
         }
         if (text.contains("Portfolio") || text.contains("Портфолио")) {
             return showPortfolio(chatId, profileOpt);
         }
 
-        if (text.contains("Reyting") || text.contains("Рейтинг") || text.contains("Rating")) {
+        if (text.contains("Reyting") || text.contains("Рейтинг")) {
             int count = profile.getReviewCount() != null ? profile.getReviewCount() : 0;
             String msg = getText(profileOpt, chatId,
                     String.format("⭐ **Ваш текущий рейтинг:** %.1f / 5.0 (%d оценок)", rating, count),
-                    String.format("⭐ **Sizning joriy reytingingiz:** %.1f / 5.0 (%d ta baho)", rating, count),
-                    String.format("⭐ **Your current rating:** %.1f / 5.0 (%d reviews)", rating, count)
+                    String.format("⭐ **Sizning joriy reytingingiz:** %.1f / 5.0 (%d ta baho)", rating, count)
             );
             return createMessage(chatId, msg, keyboardService.getProfileKeyboard(profileOpt));
         }
 
-        if (text.contains("Rasm") || text.contains("Фото") || text.contains("Photo")) {
+        if (text.contains("Rasm") || text.contains("Фото")) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PHOTO);
             String msg = getText(profileOpt, chatId,
                     "🖼 **Фото профиля:**\n\nОтправьте боту фото для обновления аватара:",
-                    "🖼 **Profil rasmi:**\n\nProfil rasmingizni yangilash uchun botga rasm yuboring:",
-                    "🖼 **Profile photo:**\n\nSend a photo to update your avatar:"
+                    "🖼 **Profil rasmi:**\n\nProfil rasmingizni yangilash uchun botga rasm yuboring:"
             );
             return createMessage(chatId, msg, keyboardService.getCancelKeyboard(profileOpt));
         }
 
-        // Tahrirlash bosilganda
-        if (text.contains("Tahrirlash") || text.contains("Редактировать") || text.contains("Edit")) {
+        if (text.contains("Tahrirlash") || text.contains("Редактировать")) {
             stateManager.setState(chatId, JobSeekerState.EDIT_MENU);
             SendMessage msg = new SendMessage(chatId.toString(), "✏️ <b>Qaysi ma'lumotingizni o'zgartirmoqchisiz?</b>\nPastdagi bo'limlardan birini tanlang:");
             msg.setParseMode("HTML");
@@ -1076,12 +1009,11 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return msg;
         }
 
-        if (text.contains("Kasb") || text.contains("Профессия") || text.contains("Profession")) {
+        if (text.contains("Kasb") || text.contains("Профессия")) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_PROFESSION);
             String msg = getText(profileOpt, chatId,
                     "📂 **Выберите новую профессию из списка ниже:**",
-                    "📂 **Pastdagi ro'yxatdan yangi kasbni tanlang:**",
-                    "📂 **Select a new profession from the list below:**"
+                    "📂 **Pastdagi ro'yxatdan yangi kasbni tanlang:**"
             );
             SendMessage sendMsg = new SendMessage(chatId.toString(), msg);
             sendMsg.setParseMode("Markdown");
@@ -1089,12 +1021,12 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return sendMsg;
         }
 
-        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
+        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
             return createMessage(chatId, keyboardService.getMainMenuText(profileOpt), keyboardService.getMainMenuKeyboard(profileOpt));
         }
 
-        String msg = getText(profileOpt, chatId, "👤 **Меню профиля**", "👤 **Profil menyusi**", "👤 **Profile menu**");
+        String msg = getText(profileOpt, chatId, "👤 **Меню профиля**", "👤 **Profil menyusi**");
         return createMessage(chatId, msg, keyboardService.getProfileKeyboard(profileOpt));
     }
 
@@ -1117,8 +1049,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (fileId == null) {
             String errorMsg = getText(profileOpt, chatId,
                     "❌ Не удалось загрузить фото. Пожалуйста, отправьте изображение!",
-                    "❌ Rasmni yuklab bo'lmadi. Iltimos, haqiqiy rasm faylini yuboring!",
-                    "❌ Failed to load photo. Please send an image!"
+                    "❌ Rasmni yuklab bo'lmadi. Iltimos, haqiqiy rasm faylini yuboring!"
             );
             return createMessage(chatId, errorMsg, keyboardService.getCancelKeyboard(profileOpt));
         }
@@ -1136,8 +1067,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String msg = getText(profileOpt, chatId,
                 "✅ Фото профиля успешно сохранено!",
-                "✅ Profil rasmi muvaffaqiyatli saqlandi!",
-                "✅ Profile photo successfully updated!"
+                "✅ Profil rasmi muvaffaqiyatli saqlandi!"
         );
         executeMessage(createMessage(chatId, msg, null));
         return showProfile(chatId, Optional.of(profile));
@@ -1148,20 +1078,18 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         String jobTypeDisplay;
         String preferred = profile.getPreferredJobType();
 
-        if ("PROFESSIONAL".equals(preferred) && profile.getProfession() != null && !profile.getProfession().isEmpty()) {
+        if (preferred != null && !preferred.isBlank()) {
+            if ("PROFESSIONAL".equalsIgnoreCase(preferred) || "Kasbim bo'yicha".equalsIgnoreCase(preferred) || "По профессии".equalsIgnoreCase(preferred)) {
+                jobTypeDisplay = (profile.getProfession() != null && !profile.getProfession().isBlank())
+                        ? "👨‍💻 " + profile.getProfession()
+                        : (isRussian(profileOpt) ? "👨‍💻 По специальности" : "👨‍💻 Mutaxassislik bo'yicha");
+            } else {
+                jobTypeDisplay = preferred;
+            }
+        } else if (profile.getProfession() != null && !profile.getProfession().isBlank()) {
             jobTypeDisplay = "👨‍💻 " + profile.getProfession();
         } else {
-            if (isRussian(profileOpt)) {
-                jobTypeDisplay = "🔧 Обычный рабочий";
-            } else if (isEnglish(profileOpt)) {
-                jobTypeDisplay = "🔧 Ordinary worker";
-            } else {
-                jobTypeDisplay = "🔧 Oddiy ishchi";
-            }
-            if (profile.getProfession() != null && !profile.getProfession().isEmpty() &&
-                    ("Kasbim bo'yicha".equals(preferred) || "По профессии".equals(preferred) || "By profession".equals(preferred))) {
-                jobTypeDisplay = "👨‍💻 " + profile.getProfession();
-            }
+            jobTypeDisplay = isRussian(profileOpt) ? "Не указан" : "Ko'rsatilmagan";
         }
 
         String cardDisplay = "❌ Karta mavjud emas";
@@ -1186,7 +1114,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         double currentRating = profile.getRating() != null ? profile.getRating() : 0.0;
         String ratingDisplayUz = count > 0 ? String.format("%.1f (%d ta baho)", currentRating, count) : "0.0 (Hali baholanmagan)";
         String ratingDisplayRu = count > 0 ? String.format("%.1f (%d оценок)", currentRating, count) : "0.0 (Еще нет оценок)";
-        String ratingDisplayEn = count > 0 ? String.format("%.1f (%d reviews)", currentRating, count) : "0.0 (No reviews yet)";
 
         if (isRussian(profileOpt)) {
             return String.format(
@@ -1205,27 +1132,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     ratingDisplayRu,
                     profile.getProfession() != null ? profile.getProfession() : "Не указана",
                     profile.getExperience() != null ? profile.getExperience() : "Не указан",
-                    jobTypeDisplay,
-                    cardDisplay
-            );
-        }
-        if (isEnglish(profileOpt)) {
-            return String.format(
-                    "👤 **Profile information:**\n\n" +
-                            "📌 **Full name:** %s\n" +
-                            "🪪 **Passport:** %s\n" +
-                            "📞 **Phone:** %s\n" +
-                            "⭐ **Rating:** %s\n" +
-                            "💼 **Profession:** %s\n" +
-                            "📝 **Experience:** %s\n" +
-                            "🛠 **Job type:** %s\n" +
-                            "💳 **Card:** %s",
-                    profile.getFullName() != null ? profile.getFullName() : "Not specified",
-                    profile.getPassportNumber() != null ? profile.getPassportNumber() : "Not specified",
-                    profile.getPhoneNumber() != null ? profile.getPhoneNumber() : "Not specified",
-                    ratingDisplayEn,
-                    profile.getProfession() != null ? profile.getProfession() : "Not specified",
-                    profile.getExperience() != null ? profile.getExperience() : "Not specified",
                     jobTypeDisplay,
                     cardDisplay
             );
@@ -1264,19 +1170,16 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (currentPortfolio != null && !currentPortfolio.isEmpty()) {
             msg.append(getText(profileOpt, chatId,
                             "📁 **Ваше текущее портфолио:**\n\n",
-                            "📁 **Sizning joriy portfoliongiz:**\n\n",
-                            "📁 **Your current portfolio:**\n\n"))
+                            "📁 **Sizning joriy portfoliongiz:**\n\n"))
                     .append(currentPortfolio)
                     .append("\n\n")
                     .append(getText(profileOpt, chatId,
-                            "✏️ Yangilash uchun yangi havola yoki matn yuboring:",
-                            "✏️ Yangilash uchun yangi havola yoki matn yuboring:",
-                            "✏️ Send new portfolio link or text to update:"));
+                            "✏️ Отправьте новую ссылку или текст для обновления:",
+                            "✏️ Yangilash uchun yangi havola yoki matn yuboring:"));
         } else {
             msg.append(getText(profileOpt, chatId,
                     "📁 Отправьте ссылку на ваше портфолио (GitHub, резюме и т.д.):",
-                    "📁 Portfoliongizni kiriting (GitHub havola, loyihalar haqida matn yoki rezyume linki):",
-                    "📁 Please send your portfolio link (GitHub, resume, etc.):"));
+                    "📁 Portfoliongizni kiriting (GitHub havola, loyihalar haqida matn yoki rezyume linki):"));
         }
 
         return createMessage(chatId, msg.toString(), keyboardService.getCancelKeyboard(profileOpt));
@@ -1297,8 +1200,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String msg = getText(profileOpt, chatId,
                 "✅ Портфолио успешно сохранено!",
-                "✅ Portfolio muvaffaqiyatli saqlandi!",
-                "✅ Portfolio successfully saved!"
+                "✅ Portfolio muvaffaqiyatli saqlandi!"
         );
         executeMessage(createMessage(chatId, msg, null));
         return showProfile(chatId, Optional.of(profile));
@@ -1312,17 +1214,21 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String jobTypeDisplay;
         String preferred = profile.getPreferredJobType();
-        if ("PROFESSIONAL".equals(preferred) && profile.getProfession() != null && !profile.getProfession().isEmpty()) {
+        if (preferred != null && !preferred.isBlank()) {
+            if ("PROFESSIONAL".equalsIgnoreCase(preferred) || "Kasbim bo'yicha".equalsIgnoreCase(preferred) || "По профессии".equalsIgnoreCase(preferred)) {
+                jobTypeDisplay = profile.getProfession() != null ? "👨‍💻 " + profile.getProfession() : "👨‍💻 Kasbim bo'yicha";
+            } else {
+                jobTypeDisplay = preferred;
+            }
+        } else if (profile.getProfession() != null && !profile.getProfession().isBlank()) {
             jobTypeDisplay = "👨‍💻 " + profile.getProfession();
         } else {
-            if (isRussian(profileOpt)) jobTypeDisplay = "🔧 Обычный рабочий";
-            else if (isEnglish(profileOpt)) jobTypeDisplay = "🔧 Ordinary worker";
-            else jobTypeDisplay = "🔧 Oddiy ishchi";
+            jobTypeDisplay = isRussian(profileOpt) ? "Не указан" : "Ko'rsatilmagan";
         }
 
         String cardDisplay = bankCardRepository.findFirstByJobSeekerId(chatId)
                 .map(card -> maskCardNumber(card.getCardNumber()))
-                .orElse(getText(profileOpt, chatId, "Не указана", "Kiritilmagan", "Not set"));
+                .orElse(getText(profileOpt, chatId, "Не указана", "Kiritilmagan"));
 
         return String.format(
                 "%s\n\n" +
@@ -1333,20 +1239,20 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                         "🔧 **%s:** %s\n" +
                         "💳 **%s:** %s\n" +
                         "⭐ **%s:** %.1f",
-                getText(profileOpt, chatId, "👤 **Sizning profilingiz:**", "👤 **Ваш профиль:**", "👤 **Your profile:**"),
-                getText(profileOpt, chatId, "F.I.O", "Ф.И.О", "Full Name"),
+                getText(profileOpt, chatId, "👤 **Ваш профиль:**", "👤 **Sizning profilingiz:**"),
+                getText(profileOpt, chatId, "Ф.И.О", "F.I.O"),
                 profile.getFullName(),
-                getText(profileOpt, chatId, "Tel", "Тел", "Phone"),
+                getText(profileOpt, chatId, "Тел", "Tel"),
                 profile.getPhoneNumber(),
-                getText(profileOpt, chatId, "Pasport", "Паспорт", "Passport"),
+                getText(profileOpt, chatId, "Паспорт", "Pasport"),
                 profile.getPassportNumber(),
-                getText(profileOpt, chatId, "Kasb", "Профессия", "Profession"),
+                getText(profileOpt, chatId, "Профессия", "Kasb"),
                 profile.getProfession() != null ? profile.getProfession() : "-",
-                getText(profileOpt, chatId, "Ish turi", "Тип работы", "Job Type"),
+                getText(profileOpt, chatId, "Тип работы", "Ish turi"),
                 jobTypeDisplay,
-                getText(profileOpt, chatId, "Karta", "Карта", "Card"),
+                getText(profileOpt, chatId, "Карта", "Karta"),
                 cardDisplay,
-                getText(profileOpt, chatId, "Reyting", "Рейтинг", "Rating"),
+                getText(profileOpt, chatId, "Рейтинг", "Reyting"),
                 profile.getRating()
         );
     }
@@ -1357,16 +1263,14 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     @Override
     public SendMessage handleWalletMenu(Long chatId, String text, Optional<JobSeekerProfile> profileOpt) {
         if (text.contains("Bank kartasi qo'shish") || text.contains("💳 Bank kartasi") ||
-                text.contains("Добавить банковскую карту") || text.contains("💳 Банковская карта") ||
-                text.contains("Add bank card") || text.contains("💳 Bank card")) {
+                text.contains("Добавить банковскую карту") || text.contains("💳 Банковская карта")) {
 
             if (profileOpt.isPresent()) {
                 List<BankCard> bankCards = profileOpt.get().getBankCards();
                 if (bankCards != null && !bankCards.isEmpty()) {
                     String msg = getText(profileOpt, chatId,
                             "⚠️ У вас уже есть карта! Сначала удалите текущую карту.",
-                            "⚠️ Sizda allaqachon karta mavjud! Avval kartani o'chiring.",
-                            "⚠️ You already have a card! Please delete the current card first."
+                            "⚠️ Sizda allaqachon karta mavjud! Avval kartani o'chiring."
                     );
                     return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt, true));
                 }
@@ -1375,53 +1279,44 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_CARD_NUMBER);
             String msg = getText(profileOpt, chatId,
                     "💳 Введите номер вашей карты (16 цифр):",
-                    "💳 Karta raqamingizni kiriting (16 xona):",
-                    "💳 Enter your card number (16 digits):"
+                    "💳 Karta raqamingizni kiriting (16 xona):"
             );
             return createMessage(chatId, msg, keyboardService.getCancelKeyboard(profileOpt));
         }
 
         if (text.contains("Kartani o'chirish") || text.contains("🗑️ Kartani o'chirish") ||
-                text.contains("Удалить карту") || text.contains("🗑️ Удалить карту") ||
-                text.contains("Delete card") || text.contains("🗑️ Delete card")) {
+                text.contains("Удалить карту") || text.contains("🗑️ Удалить карту")) {
             return handleDeleteCard(chatId, profileOpt);
         }
 
         if (text.contains("Hisob balansi") || text.contains("💰 Hisob balansi") ||
-                text.contains("Баланс") || text.contains("💰 Баланс") ||
-                text.contains("Balance") || text.contains("💰 Balance")) {
+                text.contains("Баланс") || text.contains("💰 Баланс")) {
             return showWallet(chatId, profileOpt);
         }
 
         if (text.contains("Pul yechish") || text.contains("💸 Pul yechish") ||
-                text.contains("Снять деньги") || text.contains("💸 Снять деньги") ||
-                text.contains("Withdraw") || text.contains("💸 Withdraw")) {
+                text.contains("Снять деньги") || text.contains("💸 Снять деньги")) {
             String msg = getText(profileOpt, chatId,
                     "⚠️ Минимальная сумма для снятия: 50,000 сум.",
-                    "⚠️ Pul yechish uchun minimal summa: 50,000 so'm.",
-                    "⚠️ Minimum withdrawal amount: 50,000 sum."
+                    "⚠️ Pul yechish uchun minimal summa: 50,000 so'm."
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt));
         }
 
         if (text.contains("To'lov usullari") || text.contains("💳 To'lov usullari") ||
-                text.contains("Способы оплаты") || text.contains("💳 Способы оплаты") ||
-                text.contains("Payment methods") || text.contains("💳 Payment methods")) {
+                text.contains("Способы оплаты") || text.contains("💳 Способы оплаты")) {
             String msg = getText(profileOpt, chatId,
                     "💳 **Доступные способы оплаты:**\n\n- Click\n- Payme\n- Uzum Bank",
-                    "💳 **Mavjud to'lov usullari:**\n\n- Click\n- Payme\n- Uzum Bank",
-                    "💳 **Available payment methods:**\n\n- Click\n- Payme\n- Uzum Bank"
+                    "💳 **Mavjud to'lov usullari:**\n\n- Click\n- Payme\n- Uzum Bank"
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt));
         }
 
         if (text.contains("To'lov tarixi") || text.contains("📜 To'lov tarixi") ||
-                text.contains("История платежей") || text.contains("📜 История платежей") ||
-                text.contains("Payment history") || text.contains("📜 Payment history")) {
+                text.contains("История платежей") || text.contains("📜 История платежей")) {
             String msg = getText(profileOpt, chatId,
                     "📜 **История платежей:**\n\nНа данный момент операций нет.",
-                    "📜 **To'lovlar tarixi:**\n\nHozircha amaliyotlar mavjud emas.",
-                    "📜 **Payment history:\n\nNo transactions yet."
+                    "📜 **To'lovlar tarixi:**\n\nHozircha amaliyotlar mavjud emas."
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt));
         }
@@ -1435,8 +1330,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             if (profileOpt.isEmpty()) {
                 String msg = getText(profileOpt, chatId,
                         "❌ Вы еще не зарегистрированы!",
-                        "❌ Siz hali ro'yxatdan o'tmagansiz!",
-                        "❌ You are not registered yet!"
+                        "❌ Siz hali ro'yxatdan o'tmagansiz!"
                 );
                 return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
             }
@@ -1446,8 +1340,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             if (bankCards == null || bankCards.isEmpty()) {
                 String msg = getText(profileOpt, chatId,
                         "❌ У вас нет сохраненных карт.",
-                        "❌ Sizda saqlangan karta mavjud emas.",
-                        "❌ You have no saved cards."
+                        "❌ Sizda saqlangan karta mavjud emas."
                 );
                 return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt, false));
             }
@@ -1461,16 +1354,14 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
             String msg = getText(profileOpt, chatId,
                     "✅ Карта успешно удалена! (" + maskedCard + ")",
-                    "✅ Karta muvaffaqiyatli o'chirildi! (" + maskedCard + ")",
-                    "✅ Card successfully deleted! (" + maskedCard + ")"
+                    "✅ Karta muvaffaqiyatli o'chirildi! (" + maskedCard + ")"
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt, false));
         } catch (Exception e) {
             log.error("❌ Kartani o'chirishda xatolik: {}", e.getMessage(), e);
             String msg = getText(profileOpt, chatId,
                     "❌ Ошибка при удалении карты: " + e.getMessage(),
-                    "❌ Kartani o'chirishda xatolik: " + e.getMessage(),
-                    "❌ Error deleting card: " + e.getMessage()
+                    "❌ Kartani o'chirishda xatolik: " + e.getMessage()
             );
             return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1483,8 +1374,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             if (profile.isEmpty()) {
                 String msg = getText(profileOpt, chatId,
                         "❌ Вы еще не зарегистрированы!",
-                        "❌ Siz hali ro'yxatdan o'tmagansiz!",
-                        "❌ You are not registered yet!"
+                        "❌ Siz hali ro'yxatdan o'tmagansiz!"
                 );
                 return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
             }
@@ -1526,12 +1416,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                             "💰 **Hisob balansi:** " + balance + " so'm\n" +
                             "💳 **Karta:** " + cardNumberDisplay + "\n" +
                             (cardHolderDisplay.isEmpty() ? "" : cardHolderDisplay + "\n") +
-                            "\n📌 Quyidagi tugmalardan foydalaning:",
-                    "💳 **Wallet and payments:**\n\n" +
-                            "💰 **Balance:** " + balance + " sum\n" +
-                            "💳 **Card:** " + cardNumberDisplay + "\n" +
-                            (cardHolderDisplay.isEmpty() ? "" : cardHolderDisplay + "\n") +
-                            "\n📌 Use the buttons below:"
+                            "\n📌 Quyidagi tugmalardan foydalaning:"
             );
 
             boolean hasCard = bankCards != null && !bankCards.isEmpty();
@@ -1540,8 +1425,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             log.error("❌ Hamyonni ko'rsatishda xatolik: {}", e.getMessage(), e);
             String msg = getText(profileOpt, chatId,
                     "❌ Произошла ошибка!",
-                    "❌ Xatolik yuz berdi!",
-                    "❌ An error occurred!"
+                    "❌ Xatolik yuz berdi!"
             );
             return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1555,8 +1439,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (profileOpt.isEmpty()) {
             String msg = getText(profileOpt, chatId,
                     "📂 Чтобы увидеть свои заявки, сначала зарегистрируйтесь.",
-                    "📂 Arizalaringizni ko'rish uchun avval ro'yxatdan o'ting.",
-                    "📂 To view your applications, please register first."
+                    "📂 Arizalaringizni ko'rish uchun avval ro'yxatdan o'ting."
             );
             return createHtmlMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1567,16 +1450,14 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (myApps == null || myApps.isEmpty()) {
             String msg = getText(profileOpt, chatId,
                     "📂 Вы еще не подавали заявок на вакансии.",
-                    "📂 Siz hali hech qanday vakansiyaga ariza topshirmagansiz.",
-                    "📂 You have not submitted any applications yet."
+                    "📂 Siz hali hech qanday vakansiyaga ariza topshirmagansiz."
             );
             return createHtmlMessage(chatId, msg, keyboardService.getSubBackKeyboard(profileOpt));
         }
 
         String title = getText(profileOpt, chatId,
                 "📋 <b>Ваши заявки:</b>\n\n",
-                "📋 <b>Siz yuborgan arizalar:</b>\n\n",
-                "📋 <b>Your applications:</b>\n\n"
+                "📋 <b>Siz yuborgan arizalar:</b>\n\n"
         );
         StringBuilder sb = new StringBuilder(title);
         List<JobVacancy> allVacancies = jobStore.getAllVacancies();
@@ -1596,15 +1477,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                     case ACCEPTED -> "✅ Принято на работу!";
                     case REJECTED -> "❌ Отклонено";
                     case CANCELLED -> "🚫 Отменено";
-                };
-            } else if (isEnglish(profileOpt)) {
-                statusStr = switch (app.getStatus()) {
-                    case PENDING -> "⏳ Pending (Not opened yet)";
-                    case VIEWED -> "👁 Viewed (Waiting for response)";
-                    case INTERVIEW -> "📅 Invited to interview!";
-                    case ACCEPTED -> "✅ Accepted!";
-                    case REJECTED -> "❌ Rejected";
-                    case CANCELLED -> "🚫 Cancelled";
                 };
             } else {
                 statusStr = switch (app.getStatus()) {
@@ -1633,50 +1505,41 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     public SendMessage handleSettingsMenu(Long chatId, String text, Optional<JobSeekerProfile> profileOpt) {
         JobSeekerState currentState = stateManager.getState(chatId);
 
-        if (text.equals("🌐 Til") || text.equals("🌐 Язык") || text.equals("🌐 Language") ||
-                text.contains("Til") || text.contains("Язык") || text.contains("Language")) {
-
+        if (text.equals("🌐 Til") || text.equals("🌐 Язык") || text.contains("Til") || text.contains("Язык")) {
             stateManager.setPreviousState(chatId, currentState);
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_LANGUAGE);
             String msg = getText(profileOpt, chatId,
-                    "🌐 **Выберите язык / Choose language:**",
-                    "🌐 **Tilni tanlang / Choose language:**",
-                    "🌐 **Choose language / Tilni tanlang:**"
+                    "🌐 **Выберите язык / Tilni tanlang:**",
+                    "🌐 **Tilni tanlang / Выберите язык:**"
             );
             return createMessage(chatId, msg, getLanguageInlineKeyboard());
         }
 
-        if (text.equals("🔒 Maxfiylik") || text.equals("🔒 Конфиденциальность") || text.equals("🔒 Privacy") ||
-                text.contains("Maxfiylik") || text.contains("Конфиденциальность") || text.contains("Privacy")) {
+        if (text.equals("🔒 Maxfiylik") || text.equals("🔒 Конфиденциальность") || text.contains("Maxfiylik") || text.contains("Конфиденциальность")) {
             String msg = getText(profileOpt, chatId,
                     "🔒 **Настройки конфиденциальности:**\n\nВаши данные надежно защищены.",
-                    "🔒 **Maxfiylik sozlamalari:**\n\nSizning ma'lumotlaringiz xavfsiz saqlanadi.",
-                    "🔒 **Privacy settings:**\n\nYour data is securely protected."
+                    "🔒 **Maxfiylik sozlamalari:**\n\nSizning ma'lumotlaringiz xavfsiz saqlanadi."
             );
             return createMessage(chatId, msg, keyboardService.getSettingsKeyboard(profileOpt));
         }
 
-        if (text.equals("🔔 Bildirishnoma") || text.equals("🔔 Уведомления") || text.equals("🔔 Notifications") ||
-                text.contains("Bildirishnoma") || text.contains("Уведомления") || text.contains("Notifications")) {
+        if (text.equals("🔔 Bildirishnoma") || text.equals("🔔 Уведомления") || text.contains("Bildirishnoma") || text.contains("Уведомления")) {
             String msg = getText(profileOpt, chatId,
                     "🔔 **Уведомления:** Включены ✅",
-                    "🔔 **Bildirishnomalar:** Yoniq ✅",
-                    "🔔 **Notifications:** Enabled ✅"
+                    "🔔 **Bildirishnomalar:** Yoniq ✅"
             );
             return createMessage(chatId, msg, keyboardService.getSettingsKeyboard(profileOpt));
         }
 
-        if (text.equals("❓ Yordam") || text.equals("❓ Помощь") || text.equals("❓ Help") ||
-                text.contains("Yordam") || text.contains("Помощь") || text.contains("Help")) {
+        if (text.equals("❓ Yordam") || text.equals("❓ Помощь") || text.contains("Yordam") || text.contains("Помощь")) {
             String msg = getText(profileOpt, chatId,
                     "❓ **Центр помощи:**\n\nВ случае возникновения проблем свяжитесь с администратором.",
-                    "❓ **Yordam markazi:**\n\nMuammo yuzaga kelsa, admin bilan bog'laning.",
-                    "❓ **Help center:**\n\nIf you have any problems, contact the administrator."
+                    "❓ **Yordam markazi:**\n\nMuammo yuzaga kelsa, admin bilan bog'laning."
             );
             return createMessage(chatId, msg, keyboardService.getSettingsKeyboard(profileOpt));
         }
 
-        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад") || text.equals("⬅️ Back")) {
+        if (text.equals("⬅️ Orqaga") || text.equals("⬅️ Назад")) {
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
             return createMessage(chatId, keyboardService.getMainMenuText(profileOpt),
                     keyboardService.getMainMenuKeyboard(profileOpt));
@@ -1684,14 +1547,13 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String msg = getText(profileOpt, chatId,
                 "⚙️ **Раздел настроек:**",
-                "⚙️ **Sozlamalar bo'limi:**",
-                "⚙️ **Settings section:**"
+                "⚙️ **Sozlamalar bo'limi:**"
         );
         return createMessage(chatId, msg, keyboardService.getSettingsKeyboard(profileOpt));
     }
 
     // ============================================
-    // TIL TANLASH
+    // TIL TANLASH (Matn orqali kelganda)
     // ============================================
     @Override
     public SendMessage handleLanguageSelection(Long chatId, String text, Optional<JobSeekerProfile> profileOpt) {
@@ -1700,13 +1562,10 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             lang = "uz";
         } else if (text.equals("🇷🇺 Русский") || text.contains("Русский")) {
             lang = "ru";
-        } else if (text.equals("🇬🇧 English") || text.contains("English")) {
-            lang = "en";
         } else {
             String msg = getText(profileOpt, chatId,
                     "❌ Пожалуйста, выберите язык:",
-                    "❌ Iltimos, tilni tanlang:",
-                    "❌ Please select a language:"
+                    "❌ Iltimos, tilni tanlang:"
             );
             return createMessage(chatId, msg, getLanguageInlineKeyboard());
         }
@@ -1723,14 +1582,9 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
                 "true".equals(stateManager.getData(chatId, "registration"))) {
             stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
             stateManager.removeData(chatId, "registration");
-            String msg;
-            if ("ru".equals(lang)) {
-                msg = "👤 **Регистрация в качестве соискателя:**\n\nВведите ваше имя и фамилию.\n💡 *Пример:* `Ali Valiyev`";
-            } else if ("en".equals(lang)) {
-                msg = "👤 **Registration as a job seeker:**\n\nPlease enter your first and last name.\n💡 *Example:* `Ali Valiyev`";
-            } else {
-                msg = "👤 **Ish izlovchi sifatida ro'yxatdan o'tish:**\n\nIltimos, ism va familiyangizni kiriting.\n💡 *Misol:* `Ali Valiyev`";
-            }
+            String msg = "ru".equals(lang)
+                    ? "👤 **Регистрация в качестве соискателя:**\n\nВведите ваше имя и фамилию.\n💡 *Пример:* `Ali Valiyev`"
+                    : "👤 **Ish izlovchi sifatida ro'yxatdan o'tish:**\n\nIltimos, ism va familiyangizni kiriting.\n💡 *Misol:* `Ali Valiyev`";
             return createMessage(chatId, msg, (ReplyKeyboard) null);
         }
 
@@ -1742,8 +1596,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             if (previous == JobSeekerState.SETTINGS_MENU) {
                 String msg = getText(profileOpt, chatId,
                         "⚙️ **Раздел настроек:**",
-                        "⚙️ **Sozlamalar bo'limi:**",
-                        "⚙️ **Settings section:**"
+                        "⚙️ **Sozlamalar bo'limi:**"
                 );
                 return createMessage(chatId, msg, keyboardService.getSettingsKeyboard(profileOpt));
             } else {
@@ -1754,8 +1607,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.MAIN_MENU);
             String msg = getText(profileOpt, chatId,
                     "✅ Язык изменен на Русский!",
-                    "✅ Til O'zbek tiliga o'zgartirildi!",
-                    "✅ Language changed to English!"
+                    "✅ Til O'zbek tiliga o'zgartirildi!"
             );
             return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1771,8 +1623,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (!isValidLuhn(cardNumber)) {
             String errorMsg = getText(profileOpt, chatId,
                     "❌ Неверный номер карты! Пожалуйста, введите правильный 16-значный номер карты:",
-                    "❌ Karta raqami xato kiritildi! Iltimos, 16 xonali haqiqiy karta raqamini qaytadan kiriting:",
-                    "❌ Invalid card number! Please re-enter a valid 16-digit card number:"
+                    "❌ Karta raqami xato kiritildi! Iltimos, 16 xonali haqiqiy karta raqamini qaytadan kiriting:"
             );
             return createMessage(chatId, errorMsg, keyboardService.getCancelKeyboard(profileOpt));
         }
@@ -1782,8 +1633,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
         String successMsg = getText(profileOpt, chatId,
                 "👤 Введите имя владельца карты:\nНапример: ALI VALIYEV",
-                "👤 Karta egasi ismini kiriting:\nMasalan: ALI VALIYEV",
-                "👤 Enter the cardholder's name:\nE.g.: ALI VALIYEV"
+                "👤 Karta egasi ismini kiriting:\nMasalan: ALI VALIYEV"
         );
         return createMessage(chatId, successMsg, keyboardService.getCancelKeyboard(profileOpt));
     }
@@ -1798,8 +1648,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         if (profileOpt.isEmpty()) {
             String msg = getText(profileOpt, chatId,
                     "❌ Вы еще не зарегистрированы! Нажмите /start",
-                    "❌ Siz hali ro'yxatdan o'tmagansiz! Iltimos, /start bosing.",
-                    "❌ You are not registered yet! Please press /start"
+                    "❌ Siz hali ro'yxatdan o'tmagansiz! Iltimos, /start bosing."
             );
             return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(profileOpt));
         }
@@ -1820,8 +1669,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             String maskedCard = maskCardNumber(cardNumber);
             String msg = getText(profileOpt, chatId,
                     "✅ Karta muvaffaqiyatli qo'shildi!\n\n💳 Karta: " + maskedCard + "\n👤 Egasi: " + text.toUpperCase(),
-                    "✅ Karta muvaffaqiyatli qo'shildi!\n\n💳 Karta: " + maskedCard + "\n👤 Egasi: " + text.toUpperCase(),
-                    "✅ Card successfully added!\n\n💳 Card: " + maskedCard + "\n👤 Holder: " + text.toUpperCase()
+                    "✅ Karta muvaffaqiyatli qo'shildi!\n\n💳 Karta: " + maskedCard + "\n👤 Egasi: " + text.toUpperCase()
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt));
         } catch (Exception e) {
@@ -1829,8 +1677,7 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             stateManager.setState(chatId, JobSeekerState.WALLET_MENU);
             String msg = getText(profileOpt, chatId,
                     "❌ Ошибка при добавлении карты: " + e.getMessage(),
-                    "❌ Karta qo'shishda xatolik: " + e.getMessage(),
-                    "❌ Error adding card: " + e.getMessage()
+                    "❌ Karta qo'shishda xatolik: " + e.getMessage()
             );
             return createMessage(chatId, msg, keyboardService.getWalletKeyboard(profileOpt));
         }
@@ -1865,7 +1712,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
         Long chatId = callbackQuery.getMessage().getChatId();
         Integer messageId = callbackQuery.getMessage().getMessageId();
 
-        // ===== ⭐️ 3-O'ZGARTIRISH: QIDIRUV VA MAOSH FILTRI CALLBACKI (sq_query_filter_page) =====
         if (callbackData != null && callbackData.startsWith("sq_")) {
             String[] parts = callbackData.split("_");
             if (parts.length >= 4) {
@@ -1899,7 +1745,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== PAGINATION =====
         if (callbackData != null && callbackData.startsWith("vacancy_page_")) {
             String[] parts = callbackData.split("_");
             if (parts.length >= 4) {
@@ -1934,13 +1779,11 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             }
         }
 
-        // ===== ORQAGA QAYTISH =====
         if ("back_to_categories".equals(callbackData)) {
             Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
             String msg = getText(profileOpt, chatId,
                     "📂 **Выберите категорию для поиска:**",
-                    "📂 **Kategoriyani tanlang:**",
-                    "📂 **Select a category to search:**"
+                    "📂 **Kategoriyani tanlang:**"
             );
             SendMessage response = new SendMessage();
             response.setChatId(chatId.toString());
@@ -1950,7 +1793,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return response;
         }
 
-        // ===== KATEGORIYA QIDIRISH =====
         if (callbackData != null && callbackData.startsWith("category_")) {
             String categoryKey = callbackData.substring("category_".length());
             Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
@@ -1959,7 +1801,6 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
             return response;
         }
 
-        // ===== ARIZA TOPSHIRISH =====
         if (callbackData != null && callbackData.startsWith("apply_")) {
             Long vacancyId = Long.parseLong(callbackData.substring("apply_".length()));
 
@@ -1986,15 +1827,13 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
 
                 String msg = getText(seekerOpt, chatId,
                         "✅ Ваша заявка успешно отправлена! Ожидайте ответа работодателя.",
-                        "✅ Arizangiz muvaffaqiyatli topshirildi! Ish beruvchi javobini kuting.",
-                        "✅ Your application has been submitted successfully! Please wait for the employer's response."
+                        "✅ Arizangiz muvaffaqiyatli topshirildi! Ish beruvchi javobini kuting."
                 );
                 return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(seekerOpt));
             } else {
                 String msg = getText(seekerOpt, chatId,
                         "❌ Вакансия или профиль не найдены!",
-                        "❌ Vakansiya yoki profilingiz topilmadi!",
-                        "❌ Vacancy or profile not found!"
+                        "❌ Vakansiya yoki profilingiz topilmadi!"
                 );
                 return createMessage(chatId, msg, keyboardService.getMainMenuKeyboard(seekerOpt));
             }

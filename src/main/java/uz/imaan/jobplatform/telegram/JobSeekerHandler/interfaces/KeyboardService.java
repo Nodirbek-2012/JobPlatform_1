@@ -28,7 +28,7 @@ public interface KeyboardService {
 
     ReplyKeyboardMarkup getSettingsKeyboard(Optional<JobSeekerProfile> profileOpt);
 
-    ReplyKeyboardMarkup getLanguageKeyboard();
+    InlineKeyboardMarkup getLanguageKeyboard();
 
     ReplyKeyboardMarkup getActiveJobsKeyboard(Optional<JobSeekerProfile> profileOpt);
 

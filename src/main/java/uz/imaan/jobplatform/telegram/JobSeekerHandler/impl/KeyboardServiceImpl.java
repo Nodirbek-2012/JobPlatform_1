@@ -505,20 +505,19 @@ public class KeyboardServiceImpl implements KeyboardService {
     // TIL TANLASH
     // ============================================
     @Override
-    public ReplyKeyboardMarkup getLanguageKeyboard() {
-        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
-        markup.setResizeKeyboard(true);
-        markup.setOneTimeKeyboard(true);
+    public InlineKeyboardMarkup getLanguageKeyboard() {
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
 
-        KeyboardRow row1 = new KeyboardRow();
-        row1.add("🇺🇿 O'zbek");
-        row1.add("🇷🇺 Русский");
-        row1.add("🇬🇧 English");
+        InlineKeyboardButton uzBtn = new InlineKeyboardButton();
+        uzBtn.setText("🇺🇿 O'zbek");
+        uzBtn.setCallbackData("lang_uz");
 
-        KeyboardRow row2 = new KeyboardRow();
-        row2.add("⬅️ Orqaga");
+        InlineKeyboardButton ruBtn = new InlineKeyboardButton();
+        ruBtn.setText("🇷🇺 Русский");
+        ruBtn.setCallbackData("lang_ru");
 
-        markup.setKeyboard(List.of(row1, row2));
+        // Faqat 2 ta til bitta qatorda
+        markup.setKeyboard(List.of(List.of(uzBtn, ruBtn)));
         return markup;
     }
 
