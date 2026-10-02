@@ -53,7 +53,7 @@ public class JobApplication {
         INTERVIEW,    // 📅 Suhbatga chaqirildi
         ACCEPTED,     // ✅ Qabul qilindi
         REJECTED,     // ❌ Rad etildi
-        CANCELLED     // 🚫 Nomzod bekor qildi
+        CANCELLED,// 🚫 Nomzod bekor qildi
     }
 
     @PrePersist
