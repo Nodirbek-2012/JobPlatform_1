@@ -200,7 +200,7 @@ public class TelegramCallbackService {
     }
 
     // ============================================
-    // TILNI TANLASH VA REGISTRATSIYA BOSQICHI
+    // TILNI TANLASH (SOZLAMALAR VA REGISTRATSIYA UCHUN TO'G'RILANDI)
     // ============================================
 
     private void handleLanguageSelection(CallbackQuery callbackQuery, Long chatId, Telegram bot) {
@@ -208,27 +208,46 @@ public class TelegramCallbackService {
         String language = callbackQuery.getData().replace("lang_", "");
         jobSeekerHandler.updateLanguage(chatId, language);
 
-        JobSeekerState state = stateManager.getState(chatId);
+        Optional<JobSeekerProfile> profileOpt = jobSeekerProfileRepository.findByUserId(chatId);
 
-        if (state == JobSeekerState.WAITING_FOR_LANGUAGE || state == null || "true".equals(stateManager.getData(chatId, "registration"))) {
-            stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
+        // ⭐️ 1. AGAR ALLAQACHON RO'YXATDAN O'TGAN BO'LSA (SOZLAMALARDAN KELGAN BO'LSA)
+        if (profileOpt.isPresent()) {
+            JobSeekerProfile profile = profileOpt.get();
+            profile.setLanguage(language);
+            jobSeekerProfileRepository.save(profile);
+
             stateManager.removeData(chatId, "registration");
+            stateManager.removePreviousState(chatId);
+            stateManager.setState(chatId, JobSeekerState.SETTINGS_MENU);
 
-            String namePrompt = "ru".equals(language)
-                    ? "👤 <b>Регистрация в качестве соискателя:</b>\n\nВведите ваше имя и фамилию.\n💡 <i>Пример:</i> <code>Ali Valiyev</code>"
-                    : "👤 <b>Ish izlovchi sifatida ro'yxatdan o'tish:</b>\n\nIltimos, ism va familiyangizni kiriting.\n💡 <i>Misol:</i> <code>Ali Valiyev</code>";
+            String successMsg = "ru".equals(language)
+                    ? "✅ <b>Язык успешно изменен на Русский!</b>"
+                    : "✅ <b>Til muvaffaqiyatli O'zbek tiliga o'zgartirildi!</b>";
 
-            SendMessage nameMsg = new SendMessage(chatId.toString(), namePrompt);
-            nameMsg.setParseMode("HTML");
-            bot.executeMessage(nameMsg);
+            SendMessage notifyMsg = new SendMessage(chatId.toString(), successMsg);
+            notifyMsg.setParseMode("HTML");
+            bot.executeMessage(notifyMsg);
+
+            // Yangi tildagi Sozlamalar menyusi klaviaturasini chiqarib beramiz:
+            String menuTitle = "ru".equals(language) ? "⚙️ <b>Раздел настроек:</b>" : "⚙️ <b>Sozlamalar bo'limi:</b>";
+            SendMessage settingsMsg = new SendMessage(chatId.toString(), menuTitle);
+            settingsMsg.setParseMode("HTML");
+            settingsMsg.setReplyMarkup(keyboardService.getSettingsKeyboard(Optional.of(profile)));
+            bot.executeMessage(settingsMsg);
             return;
         }
 
-        String responseText = "ru".equals(language)
-                ? "✅ Язык изменен на Русский!"
-                : "✅ Til O'zbek tiliga o'zgartirildi!";
+        // ⭐️ 2. AGAR YANGI FOYDALANUVCHI BO'LSA (REGISTRATSIYA BOSQICHI)
+        stateManager.setState(chatId, JobSeekerState.WAITING_FOR_NAME);
+        stateManager.removeData(chatId, "registration");
 
-        bot.executeMessage(new SendMessage(chatId.toString(), responseText));
+        String namePrompt = "ru".equals(language)
+                ? "👤 <b>Регистрация в качестве соискателя:</b>\n\nВведите ваше имя и фамилию.\n💡 <i>Пример:</i> <code>Ali Valiyev</code>"
+                : "👤 <b>Ish izlovchi sifatida ro'yxatdan o'tish:</b>\n\nIltimos, ism va familiyangizni kiriting.\n💡 <i>Misol:</i> <code>Ali Valiyev</code>";
+
+        SendMessage nameMsg = new SendMessage(chatId.toString(), namePrompt);
+        nameMsg.setParseMode("HTML");
+        bot.executeMessage(nameMsg);
     }
 
     // ============================================
