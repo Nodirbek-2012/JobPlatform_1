@@ -27,7 +27,8 @@ public interface JobVacancyRepository extends JpaRepository<JobVacancy, Long> {
 
     List<JobVacancy> findByNotifiedFalseAndIsActiveTrue();
 
-    @Query("SELECT v FROM JobVacancy v WHERE (v.notified IS NULL OR v.notified = false) AND v.isActive = true")
+
+    @Query("SELECT v FROM JobVacancy v WHERE (v.notified IS NULL OR v.notified = false) AND (v.isActive IS NULL OR v.isActive = true)")
     List<JobVacancy> findPendingNotificationVacancies();
 
     // ===== ⭐️ KALIT SO'Z BO'YICHA QIDIRUV (Katta-kichik harfni ajratmaydi) =====

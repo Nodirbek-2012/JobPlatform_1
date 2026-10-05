@@ -285,10 +285,12 @@ public class TelegramCallbackService {
             ScrapedJobItem job = pageJobs.get(i);
             int jobGlobalIndex = fromIndex + i + 1;
 
+            // ⭐️ OsonIsh.uz nishoni qo'shildi
             String badge = switch (job.source()) {
                 case "HH.UZ" -> "🔴 HeadHunter (hh.uz)";
                 case "OLX" -> "🟢 OLX.uz";
                 case "ISHGO" -> "🔵 IshGo.uz";
+                case "OSONISH" -> "🔷 OsonIsh.uz";
                 default -> "✈️ Telegram kanali";
             };
 
