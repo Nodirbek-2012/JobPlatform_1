@@ -277,8 +277,6 @@ public class AdminService {
         sb.append("👤 <b>ФИО:</b> ").append(safe(e.getFullName(), "Не указано")).append("\n");
         sb.append("🎂 <b>Возраст:</b> ").append(e.getAge() != null ? e.getAge() : "—").append("\n");
         sb.append("📞 <b>Телефон:</b> ").append(safe(e.getPhoneNumber(), "Не указан")).append("\n");
-        sb.append("📄 <b>ИНН:</b> ").append(safe(e.getInn(), "Не указан")).append("\n");
-        sb.append("🪪 <b>Паспорт:</b> ").append(safe(e.getPassportSeriesNumber(), "Не указан")).append("\n");
 
         if (e.getCompanyAddress() != null && !e.getCompanyAddress().isBlank())
             sb.append("📍 <b>Адрес:</b> ").append(e.getCompanyAddress()).append("\n");
@@ -347,7 +345,6 @@ public class AdminService {
             sb.append("🏢 Компания: ").append(safe(e.getCompanyName(), "—")).append("\n");
             sb.append("👤 ФИО: ").append(safe(e.getFullName(), "—")).append("\n");
             sb.append("📞 Телефон: ").append(safe(e.getPhoneNumber(), "—")).append("\n");
-            sb.append("📄 ИНН: ").append(safe(e.getInn(), "—")).append("\n");
             sb.append("📌 Статус: ").append(safe(e.getStatus(), "—")).append("\n");
             sb.append("\n");
         });
@@ -403,7 +400,6 @@ public class AdminService {
             Long displayId = e.getTelegramId() != null ? e.getTelegramId()
                     : (e.getEmployerChatId() != null ? e.getEmployerChatId() : e.getId());
             sb.append(i + 1).append(". ").append(safe(e.getCompanyName(), "Без названия"))
-                    .append(" | Паспорт: ").append(safe(e.getPassportSeriesNumber(), "—"))
                     .append(" | ID: ").append(displayId != null ? displayId : "—")
                     .append(" | 📞 ").append(safe(e.getPhoneNumber(), "—")).append("\n");
             if (displayId != null) idsOnPage.add(displayId);

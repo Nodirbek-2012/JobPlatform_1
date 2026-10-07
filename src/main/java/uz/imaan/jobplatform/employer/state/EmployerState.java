@@ -5,7 +5,6 @@ public enum EmployerState {
         EMPLOYER_MAIN_MENU,
         WAITING_FOR_REG_FULL_NAME,
         WAITING_FOR_REG_AGE,
-        WAITING_FOR_REG_PASSPORT,
         WAITING_FOR_REG_PHONE,
         WAITING_FOR_REG_COMPANY,
         SETTINGS_MENU,
@@ -19,7 +18,6 @@ public enum EmployerState {
         WAITING_FOR_SALARY,
         WAITING_FOR_REQUIREMENTS,
         WAITING_FOR_PHONE,
-        WAITING_FOR_PASSPORT,
 
         EDIT_PROFILE_MENU,
         WAITING_FOR_EDIT_NAME,
@@ -41,7 +39,7 @@ public enum EmployerState {
         BLOCKED_CANDIDATES_MENU,
         WAITING_FOR_BLOCK_CANDIDATE_ID,
 
-        // ===== YANGI: 4 TA FUNKSIYA =====
+        // ===== 4 TA FUNKSIYA =====
         DASHBOARD,
         SEARCH_CANDIDATES,
         VIEW_CANDIDATE,

@@ -14,14 +14,6 @@ public class EmployerCreateDTO {
         @NotNull(message = "Chat ID bo'sh bo'lishi mumkin emas")
         private Long employerChatId;
 
-        @Pattern(regexp = "^[0-9]{9}$", message = "INN 9 ta raqamdan iborat bo'lishi kerak")
-        private String inn;
-
-        @NotBlank(message = "Pasport ma'lumotlari kiritilishi shart")
-        @Pattern(regexp = "^[A-Z]{2}[0-9]{7}$",
-                message = "Pasport seriyasi faqat katta harf va 7 ta raqamdan iborat bo'lishi kerak (masalan: AA1234567)")
-        private String passportSeriesNumber;
-
         @NotBlank(message = "Telefon raqam bo'sh bo'lmasligi kerak")
         @Pattern(regexp = "^\\+998[0-9]{9}$",
                 message = "Telefon raqam +998 bilan boshlanib, 9 ta raqamdan iborat bo'lishi kerak")
