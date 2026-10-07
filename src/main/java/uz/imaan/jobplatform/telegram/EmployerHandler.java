@@ -35,7 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -53,8 +52,6 @@ public class EmployerHandler {
 
     private final Map<Long, EmployerState> states = new ConcurrentHashMap<>();
     private final Map<Long, Map<String, String>> draftData = new ConcurrentHashMap<>();
-
-    private static final Pattern PASSPORT_PATTERN = Pattern.compile("^[A-Z]{2}[0-9]{7}$");
 
     private static final List<String> CANCEL_WORDS = List.of(
             "❌ Bekor qilish", "❌ Отмена", "❌ Cancel",
@@ -106,15 +103,11 @@ public class EmployerHandler {
 
         if (notRegistered) {
 
-            // Если ждём ЯЗЫК — но пришёл контакт/фото — не сбрасываем
-            // Если ждём ЯЗЫК и пришёл текст /start — показываем выбор языка
             boolean isContactOrMedia = message.hasContact()
                     || message.hasPhoto()
                     || message.hasDocument()
                     || message.hasLocation();
 
-            // Показываем выбор языка только для /start или пустого текста
-            // (НЕ для контакта и НЕ для медиа!)
             if (!isContactOrMedia) {
                 if (text.equals("/start") || text.equals("/menu")
                         || text.equals("🏠 Asosiy menyu") || text.equals("🏠 Главное меню")
@@ -130,7 +123,6 @@ public class EmployerHandler {
                 }
             }
 
-            // После выбора языка — идём по шагам регистрации
             return handleRegistration(chatId, text, message, lang, profileOpt);
         }
 
@@ -632,7 +624,7 @@ public class EmployerHandler {
                     getSettingsKeyboard(lang));
         }
 
-        // ===== ЖДЁМ ВЫБОР ЯЗЫКА (через inline callback) =====
+        // ===== ЖДЁМ ВЫБОР ЯЗЫКА =====
         if (state == EmployerState.WAITING_FOR_LANGUAGE) {
             return createInlineLanguageMessage(chatId,
                     "🌐 **Tilni tanlang / Выберите язык / Choose language:**");
@@ -805,7 +797,7 @@ public class EmployerHandler {
 
         if (data == null) return null;
 
-        // ===== ВЫБОР ЯЗЫКА (INLINE callback) =====
+        // ===== ВЫБОР ЯЗЫКА =====
         if (data.startsWith("lang_")) {
             String newLang = data.replace("lang_", "");
             log.info("🌐 [LANG] callback={}, newLang={}, chatId={}", data, newLang, chatId);
@@ -814,16 +806,14 @@ public class EmployerHandler {
                     || profileOpt.get().getFullName() == null
                     || profileOpt.get().getFullName().isBlank();
 
-            // Если профиля нет — создаём
             EmployerEntity profile = profileOpt.orElseGet(() -> EmployerEntity.builder()
                     .employerChatId(chatId)
                     .createdAt(LocalDateTime.now())
                     .build());
 
             profile.setLanguage(newLang);
-            employerRepository.saveAndFlush(profile);  // ← ИЗМЕНИЛ save на saveAndFlush
+            employerRepository.saveAndFlush(profile);
 
-            // Проверяем, что сохранилось
             String savedLang = employerRepository.findByEmployerChatId(chatId)
                     .map(EmployerEntity::getLanguage).orElse("NULL");
             log.info("🌐 [LANG SAVED] dbLang={}", savedLang);
@@ -1609,7 +1599,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // РЕГИСТРАЦИЯ
+    // РЕГИСТРАЦИЯ (БЕЗ ПАСПОРТА!)
     // ============================================
     private SendMessage handleRegistration(Long chatId, String text, Message message, String lang, Optional<EmployerEntity> profileOpt) {
         EmployerState regState = states.getOrDefault(chatId, EmployerState.WAITING_FOR_LANGUAGE);
@@ -1650,30 +1640,6 @@ public class EmployerHandler {
                         getCancelKeyboard(lang));
             }
             draftData.get(chatId).put("reg_age", text);
-            states.put(chatId, EmployerState.WAITING_FOR_REG_PASSPORT);
-            return createMessage(chatId,
-                    getText(lang, "🪪 **Pasport (AA1234567):**",
-                            "🪪 **Паспорт (AA1234567):**",
-                            "🪪 **Passport (AA1234567):**"),
-                    getCancelKeyboard(lang));
-        }
-
-        if (regState == EmployerState.WAITING_FOR_REG_PASSPORT) {
-            if (isCancelText(text)) {
-                states.put(chatId, EmployerState.WAITING_FOR_REG_FULL_NAME);
-                draftData.get(chatId).clear();
-                return createMessage(chatId,
-                        getText(lang, "👤 Ism-familiya:", "👤 Имя:", "👤 Name:"),
-                        getCancelKeyboard(lang));
-            }
-            if (!PASSPORT_PATTERN.matcher(text.trim()).matches()) {
-                return createMessage(chatId,
-                        getText(lang, "⚠️ Format AA1234567:",
-                                "⚠️ Формат AA1234567:",
-                                "⚠️ Format AA1234567:"),
-                        getCancelKeyboard(lang));
-            }
-            draftData.get(chatId).put("reg_passport", text.trim().toUpperCase());
             states.put(chatId, EmployerState.WAITING_FOR_REG_PHONE);
             return createMessage(chatId,
                     getText(lang, "📞 **Telefon:**", "📞 **Телефон:**", "📞 **Phone:**"),
@@ -1718,7 +1684,6 @@ public class EmployerHandler {
             } catch (Exception e) {
                 entity.setAge(null);
             }
-            entity.setPassportSeriesNumber(data.get("reg_passport"));
             entity.setPhoneNumber(data.get("reg_phone"));
 
             String companyName = isNoCompanyText(text) ? null : text;
@@ -1853,7 +1818,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // СОЗДАНИЕ ВАКАНСИИ (без запроса телефона)
+    // СОЗДАНИЕ ВАКАНСИИ
     // ============================================
     private SendMessage createVacancyAndNotify(Long chatId, String phoneText,
                                                Optional<EmployerEntity> profileOpt, String lang) {
@@ -1917,7 +1882,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // ПРОФИЛЬ
+    // ПРОФИЛЬ (БЕЗ ПАСПОРТА!)
     // ============================================
     private SendMessage showProfile(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
         if (profileOpt.isEmpty() || profileOpt.get().getFullName() == null) {
@@ -1931,19 +1896,18 @@ public class EmployerHandler {
         String ns = getText(lang, "Ko'rsatilmagan", "Не указано", "N/A");
         String company = emp.getCompanyName() != null && !emp.getCompanyName().isBlank() ? emp.getCompanyName() : ns;
         String ageStr = emp.getAge() != null ? String.valueOf(emp.getAge()) : "-";
-        String passport = emp.getPassportSeriesNumber() != null ? emp.getPassportSeriesNumber() : "-";
 
         String msg = getText(lang,
-                String.format("👤 **Profil:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
-                        chatId, emp.getFullName(), ageStr, passport, company,
+                String.format("👤 **Profil:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, company,
                         emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
                         emp.getLanguage() != null ? emp.getLanguage() : "uz"),
-                String.format("👤 **Профиль:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
-                        chatId, emp.getFullName(), ageStr, passport, company,
+                String.format("👤 **Профиль:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, company,
                         emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
                         emp.getLanguage() != null ? emp.getLanguage() : "uz"),
-                String.format("👤 **Profile:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🪪 %s\n🏢 %s\n📞 %s\n🌐 %s",
-                        chatId, emp.getFullName(), ageStr, passport, company,
+                String.format("👤 **Profile:**\n\n🆔 %d\n👤 %s\n🎂 %s\n🏢 %s\n📞 %s\n🌐 %s",
+                        chatId, emp.getFullName(), ageStr, company,
                         emp.getPhoneNumber() != null ? emp.getPhoneNumber() : ns,
                         emp.getLanguage() != null ? emp.getLanguage() : "uz"));
 
@@ -1951,7 +1915,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // УВЕДОМЛЕНИЕ (для TelegramCallbackService)
+    // УВЕДОМЛЕНИЕ ДЛЯ JobSeeker
     // ============================================
     public SendMessage buildApplicationNotification(
             Long employerChatId, Long applicationId, Long employeeChatId,

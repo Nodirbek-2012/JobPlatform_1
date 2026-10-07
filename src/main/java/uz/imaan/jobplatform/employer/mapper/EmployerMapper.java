@@ -14,8 +14,6 @@ public class EmployerMapper {
 
         return EmployerEntity.builder()
                 .employerChatId(dto.getEmployerChatId())
-                .inn(dto.getInn())
-                .passportSeriesNumber(dto.getPassportSeriesNumber())
                 .phoneNumber(dto.getPhoneNumber())
                 .title(dto.getTitle())
                 .category(dto.getCategory())
@@ -37,8 +35,6 @@ public class EmployerMapper {
         return EmployerResponseDTO.builder()
                 .id(entity.getId())
                 .employerChatId(entity.getEmployerChatId())
-                .inn(entity.getInn())
-                .passportSeriesNumber(entity.getPassportSeriesNumber())
                 .fullName(entity.getFullName())
                 .phoneNumber(entity.getPhoneNumber())
                 .title(entity.getTitle())

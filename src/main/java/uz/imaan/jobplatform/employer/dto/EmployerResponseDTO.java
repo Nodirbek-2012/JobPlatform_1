@@ -14,8 +14,6 @@ public class EmployerResponseDTO {
 
     private Long id;
     private Long employerChatId;
-    private String inn;
-    private String passportSeriesNumber;
     private String fullName;
     private String phoneNumber;
     private String title;

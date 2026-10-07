@@ -32,8 +32,6 @@ public class EmployerEntity {
     private String status;
     private LocalDateTime createdAt;
 
-    private String inn;
-    private String passportSeriesNumber;
     private String phoneNumber;
     private LocalDate jobDate;
     private Integer workerCount;
@@ -64,7 +62,7 @@ public class EmployerEntity {
     @Column(length = 5000)
     private String blockedCandidateIds;
 
-    // ===== YANGI: REYTING =====
+    // ===== REYTING =====
     private Double rating;
     private Integer reviewCount;
 }
