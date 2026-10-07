@@ -7,7 +7,6 @@ import lombok.*;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 @Entity
 @Table(name = "job_seekers")
@@ -45,8 +44,9 @@ public class JobSeekerProfile {
     @Size(max = 10, message = "Til 10 belgidan oshmasligi kerak")
     private String language;
 
-    @NotBlank(message = "Pasport raqami kiritilishi shart")
-    @Size(min = 8, max = 20, message = "Pasport raqami 8-20 belgidan iborat bo'lishi kerak")
+    // ============================================
+    // PASPORT IXTIYORIY QILINDI (@NotBlank olib tashlandi)
+    // ============================================
     @Column(name = "passport_number")
     private String passportNumber;
 
@@ -89,6 +89,7 @@ public class JobSeekerProfile {
     @OneToMany(mappedBy = "jobSeeker", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private List<BankCard> bankCards = new ArrayList<>();
+
     @Column(name = "telegram_id")
     private Long telegramId;
 

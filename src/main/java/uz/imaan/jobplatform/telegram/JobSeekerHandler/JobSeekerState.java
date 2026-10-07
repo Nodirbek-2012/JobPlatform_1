@@ -6,7 +6,6 @@ public enum JobSeekerState {
     // Ro'yxatdan o'tish holatlari
     WAITING_FOR_LANGUAGE,
     WAITING_FOR_NAME,
-    WAITING_FOR_PASSPORT,
     WAITING_FOR_PHONE,
     WAITING_FOR_JOB_TYPE,
     WAITING_FOR_CATEGORY,
