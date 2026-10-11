@@ -433,17 +433,96 @@ public class Telegram extends TelegramLongPollingBot {
         if (data.startsWith("employer_detail_")) {
             try {
                 Long employerId = Long.parseLong(data.substring("employer_detail_".length()));
-                String details = adminService.getEmployerDetails(employerId);   // ⬅️ ИСПРАВЛЕНО
+                String details = adminService.getEmployerDetails(employerId);
+
                 InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-                markup.setKeyboard(List.of(List.of(button("⬅️ Назад к списку", "admin_employers"))));
+                List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+                rows.add(List.of(
+                        button("💼 Посмотреть вакансии", "employer_vacancies_" + employerId)
+                ));
+                rows.add(List.of(
+                        button("⬅️ Назад к списку", "admin_employers")
+                ));
+                markup.setKeyboard(rows);
+
+                // ⬇️⬇️⬇️ ЭТОГО НЕ ХВАТАЛО
                 SendMessage message = SendMessage.builder()
-                        .chatId(String.valueOf(chatId)).text(details)
-                        .parseMode("HTML").replyMarkup(markup).build();
+                        .chatId(String.valueOf(chatId))
+                        .text(details)
+                        .parseMode("HTML")
+                        .replyMarkup(markup)
+                        .build();
                 executeMessage(message);
+                // ⬆️⬆️⬆️
+
             } catch (Exception e) { log.error("❌ employer_detail error: {}", e.getMessage(), e); }
             return true;
         }
+// ===== Вакансии конкретного работодателя — пагинация =====
+        if (data.startsWith("employer_vacancies_page_")) {
+            try {
+                // формат: employer_vacancies_page_<employerId>_<page>
+                String rest = data.substring("employer_vacancies_page_".length());
+                String[] parts = rest.split("_");
+                Long employerId = Long.parseLong(parts[0]);
+                int page = Integer.parseInt(parts[1]);
+                sendEmployerVacanciesPage(chatId, employerId, page);
+            } catch (Exception e) {
+                log.error("❌ employer_vacancies_page error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
 
+// ===== Открыть список вакансий работодателя =====
+        if (data.startsWith("employer_vacancies_")) {
+            try {
+                Long employerId = Long.parseLong(data.substring("employer_vacancies_".length()));
+                sendEmployerVacanciesPage(chatId, employerId, 0);
+            } catch (Exception e) {
+                log.error("❌ employer_vacancies error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
+
+// ===== Детали вакансии =====
+        if (data.startsWith("vacancy_detail_")) {
+            try {
+                Long vacancyId = Long.parseLong(data.substring("vacancy_detail_".length()));
+                String details = adminService.getVacancyDetails(vacancyId);
+
+                InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+                markup.setKeyboard(List.of(List.of(
+                        button("⬅️ Назад к вакансиям", "back_to_vacancies_" + vacancyId)
+                )));
+
+                SendMessage message = SendMessage.builder()
+                        .chatId(String.valueOf(chatId))
+                        .text(details)
+                        .parseMode("HTML")
+                        .replyMarkup(markup)
+                        .build();
+                executeMessage(message);
+            } catch (Exception e) {
+                log.error("❌ vacancy_detail error: {}", e.getMessage(), e);
+
+            }
+            return true;
+        }
+        // ===== Назад к списку вакансий работодателя =====
+        if (data.startsWith("back_to_vacancies_")) {
+            try {
+                String rest = data.substring("back_to_vacancies_".length());
+                // Находим employerId по vacancyId
+                Long vacancyId = Long.parseLong(rest);
+                // Простой возврат в общий список вакансий — либо через БД находим employerChatId
+                // Пока делаем "назад" в список всех вакансий
+                sendVacanciesPage(chatId, 0);
+            } catch (Exception e) {
+                log.error("❌ back_to_vacancies error: {}", e.getMessage(), e);
+            }
+            return true;
+        }
         // ===== Кнопки меню =====
         switch (data) {
             case "admin_workers" -> { sendWorkersPage(chatId, 0); return true; }
@@ -474,6 +553,7 @@ public class Telegram extends TelegramLongPollingBot {
             case "admin_categories" -> { sendCategoryStats(chatId); return true; }
             case "noop" -> { return true; }
             default -> { return false; }
+          // пока не используем
         }
     }
 
@@ -770,6 +850,62 @@ public class Telegram extends TelegramLongPollingBot {
         keyboardMarkup.setKeyboard(keyboard);
         message.setReplyMarkup(keyboardMarkup);
         executeMessage(message);
+    }
+    public void sendEmployerVacanciesPage(long chatId, Long employerId, int page) {
+        try {
+            Object[] data = adminService.getEmployerVacanciesPageData(employerId, page);
+            String content = (String) data[0];
+            @SuppressWarnings("unchecked")
+            List<Long> idsOnPage = (List<Long>) data[1];
+            int totalPages = (int) data[2];
+
+            if (page < 0) page = 0;
+            if (page >= totalPages) page = totalPages - 1;
+
+            InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+            List<List<InlineKeyboardButton>> rows = new ArrayList<>();
+
+            // Кнопки-номера для каждой вакансии
+            if (!idsOnPage.isEmpty()) {
+                List<InlineKeyboardButton> numbersRow = new ArrayList<>();
+                for (int i = 0; i < idsOnPage.size(); i++) {
+                    numbersRow.add(button(
+                            String.valueOf(i + 1),
+                            "vacancy_detail_" + idsOnPage.get(i)
+                    ));
+                }
+                rows.add(numbersRow);
+            }
+
+            // Пагинация
+            if (totalPages > 1) {
+                List<InlineKeyboardButton> navRow = new ArrayList<>();
+                if (page > 0)
+                    navRow.add(button("⬅️", "employer_vacancies_page_" + employerId + "_" + (page - 1)));
+                navRow.add(button((page + 1) + "/" + totalPages, "noop"));
+                if (page < totalPages - 1)
+                    navRow.add(button("➡️", "employer_vacancies_page_" + employerId + "_" + (page + 1)));
+                rows.add(navRow);
+            }
+
+            // Кнопка назад к профилю
+            rows.add(List.of(
+                    button("⬅️ Назад к работодателю", "employer_detail_" + employerId)
+            ));
+            markup.setKeyboard(rows);
+
+            SendMessage message = SendMessage.builder()
+                    .chatId(String.valueOf(chatId))
+                    .text(content)
+                    .parseMode("HTML")
+                    .replyMarkup(markup)
+                    .build();
+            executeMessage(message);
+
+        } catch (Exception e) {
+            log.error("❌ sendEmployerVacanciesPage error: {}", e.getMessage(), e);
+            sendMessageSafe(chatId, "⚠️ Ошибка: " + e.getMessage());
+        }
     }
 
 }

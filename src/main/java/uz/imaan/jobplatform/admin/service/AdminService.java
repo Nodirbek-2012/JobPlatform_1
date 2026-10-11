@@ -59,7 +59,7 @@ public class AdminService {
         this.subscriptionRepository = subscriptionRepository;
     }
 
-    // ─────────────────────── READ ───────────────────────
+    // ═══════════════════ READ ═══════════════════
 
     public List<AdminDtoTwo> getAllAdmins() {
         return adminRepository.findAll().stream().map(adminMapper::toDto).toList();
@@ -70,7 +70,7 @@ public class AdminService {
                 .orElseThrow(() -> new RuntimeException("Admin not found: " + id));
     }
 
-    // ─────────────────────── CREATE ───────────────────────
+    // ═══════════════════ CREATE ═══════════════════
 
     @Transactional
     public AdminDtoTwo createAdmin(AdminDtoTwo dto) {
@@ -88,30 +88,30 @@ public class AdminService {
         adminRepository.deleteById(id);
     }
 
-    // ─────────────────────── AUTH ───────────────────────
+    // ═══════════════════ AUTH ═══════════════════
 
     public boolean isAdmin(Long chatId) {
         log.info("═══════════ ПРОВЕРКА АДМИНА ═══════════");
-        log.info("📱 Мой chatId из Telegram: {}", chatId);
-        if (chatId == null) { log.warn("❌ chatId = null"); return false; }
+        log.info("📱 chatId: {}", chatId);
+        if (chatId == null) { log.warn("❌ null"); return false; }
 
         boolean inDb = false;
         try {
             inDb = adminRepository.existsByTelegramId(chatId);
-            log.info("🗄 Проверка БД: {}", inDb);
-        } catch (Exception e) { log.error("❌ Ошибка БД: {}", e.getMessage()); }
+            log.info("🗄 БД: {}", inDb);
+        } catch (Exception e) { log.error("❌ БД: {}", e.getMessage()); }
 
         boolean inConfig = adminChatIds != null && adminChatIds.contains(chatId);
-        log.info("⚙️ Список из yml: {}", adminChatIds);
+        log.info("⚙️ yml: {}", adminChatIds);
         log.info("⚙️ contains: {}", inConfig);
 
         boolean result = inDb || inConfig;
-        log.info("✅ РЕЗУЛЬТАТ isAdmin = {}", result);
+        log.info("✅ isAdmin = {}", result);
         log.info("═══════════════════════════════════════");
         return result;
     }
 
-    // ─────────────────────── STATS ───────────────────────
+    // ═══════════════════ STATS ═══════════════════
 
     @Transactional(readOnly = true)
     public AdminStatsDto getDetailedStats() {
@@ -124,12 +124,12 @@ public class AdminService {
         long activeJobs = safeCount(jobVacancyRepository::countByIsActiveTrue);
         long filledVacancies = safeCount(() -> jobVacancyRepository.countByVacancyStatus("FILLED"));
 
-        long totalApplications = 0, pendingApplications = 0, acceptedApplications = 0, rejectedApplications = 0;
+        long totalApplications = 0, pending = 0, accepted = 0, rejected = 0;
         try {
             totalApplications = jobApplicationRepository.count();
-            pendingApplications = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.PENDING);
-            acceptedApplications = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.ACCEPTED);
-            rejectedApplications = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.REJECTED);
+            pending = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.PENDING);
+            accepted = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.ACCEPTED);
+            rejected = jobApplicationRepository.countByStatus(JobApplication.ApplicationStatus.REJECTED);
         } catch (Exception e) { log.warn("⚠️ Заявки: {}", e.getMessage()); }
 
         long totalBankCards = safeCount(bankCardRepository::count);
@@ -145,59 +145,60 @@ public class AdminService {
         } catch (Exception e) { log.warn("⚠️ Баланс: {}", e.getMessage()); }
 
         long totalReviews = 0;
-        double averageRating = 0.0;
+        double avgRating = 0.0;
         try {
             double sum = 0; long cnt = 0;
             for (JobSeekerProfile s : allSeekers) {
                 if (s.getReviewCount() != null) totalReviews += s.getReviewCount();
                 if (s.getRating() != null && s.getRating() > 0) { sum += s.getRating(); cnt++; }
             }
-            if (cnt > 0) averageRating = sum / cnt;
+            if (cnt > 0) avgRating = sum / cnt;
         } catch (Exception e) { log.warn("⚠️ Рейтинг: {}", e.getMessage()); }
 
         long totalSubscriptions = safeCount(subscriptionRepository::count);
 
-        Map<String, Long> vacanciesByCategory = new HashMap<>();
-        Map<String, Long> seekersByCategory = new HashMap<>();
-        Map<String, Long> subscriptionsByCategory = new HashMap<>();
+        Map<String, Long> vacByCat = new HashMap<>();
+        Map<String, Long> seekersByCat = new HashMap<>();
+        Map<String, Long> subsByCat = new HashMap<>();
 
         try {
             for (JobVacancy v : jobVacancyRepository.findAll()) {
                 String cat = (v.getCategory() != null && !v.getCategory().isBlank()) ? v.getCategory().trim() : "Без категории";
-                vacanciesByCategory.merge(cat, 1L, Long::sum);
+                vacByCat.merge(cat, 1L, Long::sum);
             }
             for (JobSeekerProfile s : allSeekers) {
                 String cat = (s.getCategory() != null && !s.getCategory().isBlank()) ? s.getCategory().trim()
                         : (s.getProfession() != null && !s.getProfession().isBlank() ? s.getProfession().trim() : "Без категории");
-                seekersByCategory.merge(cat, 1L, Long::sum);
+                seekersByCat.merge(cat, 1L, Long::sum);
             }
             for (Subscription sub : subscriptionRepository.findAll()) {
                 String cat = (sub.getCategory() != null && !sub.getCategory().isBlank()) ? sub.getCategory().trim() : "Без категории";
-                subscriptionsByCategory.merge(cat, 1L, Long::sum);
+                subsByCat.merge(cat, 1L, Long::sum);
             }
         } catch (Exception e) { log.warn("⚠️ Категории: {}", e.getMessage()); }
 
         Set<String> allCats = new HashSet<>();
-        allCats.addAll(vacanciesByCategory.keySet());
-        allCats.addAll(seekersByCategory.keySet());
-        allCats.addAll(subscriptionsByCategory.keySet());
+        allCats.addAll(vacByCat.keySet());
+        allCats.addAll(seekersByCat.keySet());
+        allCats.addAll(subsByCat.keySet());
 
         return AdminStatsDto.builder()
-                .totalAdmins(totalAdmins).totalWorkers(totalWorkers).totalEmployers(totalEmployers).totalUsers(totalUsers)
+                .totalAdmins(totalAdmins).totalWorkers(totalWorkers)
+                .totalEmployers(totalEmployers).totalUsers(totalUsers)
                 .totalVacancies(totalVacancies).activeJobs(activeJobs).filledVacancies(filledVacancies)
-                .totalApplications(totalApplications).pendingApplications(pendingApplications)
-                .acceptedApplications(acceptedApplications).rejectedApplications(rejectedApplications)
+                .totalApplications(totalApplications).pendingApplications(pending)
+                .acceptedApplications(accepted).rejectedApplications(rejected)
                 .totalBankCards(totalBankCards).activeBankCards(activeBankCards)
                 .totalWalletBalance(totalWalletBalance).totalTransactions(0L)
-                .totalReviews(totalReviews).averageRating(averageRating)
+                .totalReviews(totalReviews).averageRating(avgRating)
                 .totalSubscriptions(totalSubscriptions).totalCategories(allCats.size())
-                .vacanciesByCategory(vacanciesByCategory).seekersByCategory(seekersByCategory)
-                .subscriptionsByCategory(subscriptionsByCategory)
+                .vacanciesByCategory(vacByCat).seekersByCategory(seekersByCat)
+                .subscriptionsByCategory(subsByCat)
                 .completedShifts(0L).activeShifts(0L)
                 .build();
     }
 
-    // ─────────────────────── BLOCK / UNBLOCK ───────────────────────
+    // ═══════════════════ BLOCK / UNBLOCK ═══════════════════
 
     @Transactional
     public void blockUser(BlockUserDto dto) {
@@ -217,12 +218,7 @@ public class AdminService {
         jobSeekerProfileRepository.save(w);
     }
 
-    // ─────────────────────── LISTS ───────────────────────
-
-    public List<JobSeekerProfile> getAllJobSeekers() { return jobSeekerProfileRepository.findAll(); }
-    public List<EmployerEntity> getAllEmployers() { return employerRepository.findAll(); }
-
-    // ─────────────────────── DETAILS ───────────────────────
+    // ═══════════════════ DETAILS ═══════════════════
 
     public String getWorkerDetails(Long userId) {
         JobSeekerProfile w = jobSeekerProfileRepository.findByUserId(userId)
@@ -241,8 +237,10 @@ public class AdminService {
         sb.append("🎯 <b>Желаемая работа:</b> ").append(safe(w.getPreferredJobType(), "Не указана")).append("\n");
         sb.append("📊 <b>Опыт:</b> ").append(safe(w.getExperience(), "Не указан")).append("\n");
         sb.append("🌐 <b>Язык:</b> ").append(safe(w.getLanguage(), "Не указан")).append("\n");
-        sb.append("💰 <b>Баланс:</b> ").append(w.getWalletBalance() != null ? w.getWalletBalance().toPlainString() + " сум" : "0 сум").append("\n");
-        sb.append("⭐ <b>Рейтинг:</b> ").append(w.getRating() != null ? String.format("%.1f", w.getRating()) : "0.0")
+        sb.append("💰 <b>Баланс:</b> ")
+                .append(w.getWalletBalance() != null ? w.getWalletBalance().toPlainString() + " сум" : "0 сум").append("\n");
+        sb.append("⭐ <b>Рейтинг:</b> ")
+                .append(w.getRating() != null ? String.format("%.1f", w.getRating()) : "0.0")
                 .append(" (Отзывов: ").append(w.getReviewCount() != null ? w.getReviewCount() : 0).append(")\n");
 
         boolean isActive = Boolean.TRUE.equals(w.getIsActive());
@@ -277,11 +275,13 @@ public class AdminService {
         sb.append("👤 <b>ФИО:</b> ").append(safe(e.getFullName(), "Не указано")).append("\n");
         sb.append("🎂 <b>Возраст:</b> ").append(e.getAge() != null ? e.getAge() : "—").append("\n");
         sb.append("📞 <b>Телефон:</b> ").append(safe(e.getPhoneNumber(), "Не указан")).append("\n");
+       
 
         if (e.getCompanyAddress() != null && !e.getCompanyAddress().isBlank())
             sb.append("📍 <b>Адрес:</b> ").append(e.getCompanyAddress()).append("\n");
         if (e.getCompanyWebsite() != null && !e.getCompanyWebsite().isBlank())
-            sb.append("🔗 <b>Сайт:</b> <a href='").append(e.getCompanyWebsite()).append("'>").append(e.getCompanyWebsite()).append("</a>\n");
+            sb.append("🔗 <b>Сайт:</b> <a href='").append(e.getCompanyWebsite()).append("'>")
+                    .append(e.getCompanyWebsite()).append("</a>\n");
         if (e.getCompanySize() != null && !e.getCompanySize().isBlank())
             sb.append("👥 <b>Размер:</b> ").append(e.getCompanySize()).append("\n");
         if (e.getCompanyDescription() != null && !e.getCompanyDescription().isBlank())
@@ -290,7 +290,8 @@ public class AdminService {
         sb.append("💼 <b>Категория:</b> ").append(safe(e.getCategory(), "Не указана")).append("\n");
         sb.append("🧰 <b>Тип работы:</b> ").append(safe(e.getJobType(), "Не указан")).append("\n");
         sb.append("🌐 <b>Язык:</b> ").append(safe(e.getLanguage(), "Не указан")).append("\n");
-        sb.append("⭐ <b>Рейтинг:</b> ").append(e.getRating() != null ? String.format("%.1f", e.getRating()) : "0.0")
+        sb.append("⭐ <b>Рейтинг:</b> ")
+                .append(e.getRating() != null ? String.format("%.1f", e.getRating()) : "0.0")
                 .append(" (Отзывов: ").append(e.getReviewCount() != null ? e.getReviewCount() : 0).append(")\n");
         sb.append("📌 <b>Статус:</b> ").append(safe(e.getStatus(), "—")).append("\n");
 
@@ -298,6 +299,35 @@ public class AdminService {
             long cnt = jobVacancyRepository.countByEmployerChatId(e.getEmployerChatId());
             sb.append("💼 <b>Вакансий:</b> ").append(cnt).append("\n");
         } catch (Exception ignored) {}
+
+        sb.append("━━━━━━━━━━━━━━━━━━━━");
+        return sb.toString();
+    }
+
+    public String getVacancyDetails(Long vacancyId) {
+        JobVacancy v = jobVacancyRepository.findById(vacancyId).orElse(null);
+        if (v == null) return "❌ Вакансия с ID " + vacancyId + " не найдена.";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("💼 <b>ДЕТАЛИ ВАКАНСИИ</b>\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("📌 <b>Название:</b> ").append(safe(v.getTitle(), "—")).append("\n");
+        sb.append("🏢 <b>Компания:</b> ").append(safe(v.getCompanyName(), "—")).append("\n");
+        sb.append("📂 <b>Категория:</b> ").append(safe(v.getCategory(), "—")).append("\n");
+        sb.append("🧰 <b>Тип:</b> ").append(safe(v.getType(), "—")).append("\n");
+        sb.append("💰 <b>Зарплата:</b> ").append(safe(v.getSalary(), "—")).append("\n");
+        sb.append("⏰ <b>Часы работы:</b> ").append(safe(v.getWorkHours(), "—")).append("\n");
+        sb.append("👥 <b>Кол-во сотрудников:</b> ")
+                .append(v.getWorkerCount() != null ? v.getWorkerCount() : "—").append("\n");
+        sb.append("📞 <b>Телефон:</b> ").append(safe(v.getPhoneNumber(), "—")).append("\n");
+        sb.append("🟢 <b>Активна:</b> ")
+                .append(Boolean.TRUE.equals(v.getIsActive()) ? "Да ✅" : "Нет ❌").append("\n");
+
+        if (v.getRequirements() != null && !v.getRequirements().isBlank())
+            sb.append("\n📋 <b>Требования:</b>\n").append(v.getRequirements()).append("\n");
+
+        if (v.getSourceUrl() != null && !v.getSourceUrl().isBlank())
+            sb.append("\n🔗 <b>Источник:</b> <a href='").append(v.getSourceUrl()).append("'>Открыть</a>\n");
 
         sb.append("━━━━━━━━━━━━━━━━━━━━");
         return sb.toString();
@@ -328,31 +358,21 @@ public class AdminService {
             sb.append("👷 <b>СОИСКАТЕЛЬ</b>\n\n");
             sb.append("📛 ФИО: ").append(safe(w.getFullName(), "—")).append("\n");
             sb.append("📞 Телефон: ").append(safe(w.getPhoneNumber(), "—")).append("\n");
-            sb.append("🪪 Паспорт: ").append(safe(w.getPassportNumber(), "—")).append("\n");
             sb.append("💼 Профессия: ").append(safe(w.getProfession(), "—")).append("\n");
-            sb.append("📂 Категория: ").append(safe(w.getCategory(), "—")).append("\n");
-            sb.append("⭐ Рейтинг: ").append(w.getRating() != null ? String.format("%.1f", w.getRating()) : "0.0")
-                    .append(" (отзывов: ").append(w.getReviewCount() != null ? w.getReviewCount() : 0).append(")\n");
-            sb.append("📊 Опыт: ").append(safe(w.getExperience(), "—")).append("\n");
-            sb.append("🌐 Язык: ").append(safe(w.getLanguage(), "—")).append("\n");
-            sb.append("💰 Баланс: ").append(w.getWalletBalance() != null ? w.getWalletBalance().toPlainString() + " сум" : "0 сум").append("\n");
-            sb.append("📌 Статус: ").append(Boolean.TRUE.equals(w.getIsActive()) ? "Активен ✅" : "Заблокирован ❌").append("\n");
-            sb.append("\n");
+            sb.append("📌 Статус: ").append(Boolean.TRUE.equals(w.getIsActive()) ? "Активен ✅" : "Заблокирован ❌").append("\n\n");
         });
 
         employerOpt.ifPresent(e -> {
             sb.append("🏢 <b>РАБОТОДАТЕЛЬ</b>\n\n");
             sb.append("🏢 Компания: ").append(safe(e.getCompanyName(), "—")).append("\n");
             sb.append("👤 ФИО: ").append(safe(e.getFullName(), "—")).append("\n");
-            sb.append("📞 Телефон: ").append(safe(e.getPhoneNumber(), "—")).append("\n");
-            sb.append("📌 Статус: ").append(safe(e.getStatus(), "—")).append("\n");
-            sb.append("\n");
+            sb.append("📞 Телефон: ").append(safe(e.getPhoneNumber(), "—")).append("\n\n");
         });
 
         return sb.toString();
     }
 
-    // ─────────────────────── PAGINATION ───────────────────────
+    // ═══════════════════ PAGINATION ═══════════════════
 
     @Transactional(readOnly = true)
     public Object[] getWorkersListPageData(int page) {
@@ -400,6 +420,7 @@ public class AdminService {
             Long displayId = e.getTelegramId() != null ? e.getTelegramId()
                     : (e.getEmployerChatId() != null ? e.getEmployerChatId() : e.getId());
             sb.append(i + 1).append(". ").append(safe(e.getCompanyName(), "Без названия"))
+                    .append(" | Паспорт: ").append(safe(e.getPhoneNumber(), "—"))
                     .append(" | ID: ").append(displayId != null ? displayId : "—")
                     .append(" | 📞 ").append(safe(e.getPhoneNumber(), "—")).append("\n");
             if (displayId != null) idsOnPage.add(displayId);
@@ -407,24 +428,64 @@ public class AdminService {
         return new Object[]{sb.toString(), idsOnPage, totalPages};
     }
 
-    // ─────────────────────── APPLICATIONS / VACANCIES ───────────────────────
+    // ═══════════════════ EMPLOYER VACANCIES ═══════════════════
+
+    @Transactional(readOnly = true)
+    public Object[] getEmployerVacanciesPageData(Long employerChatId, int page) {
+        List<JobVacancy> vacancies = jobVacancyRepository.findByEmployerChatId(employerChatId);
+
+        if (vacancies.isEmpty()) {
+            return new Object[]{"💼 У этого работодателя пока нет вакансий.", new ArrayList<Long>(), 1};
+        }
+
+        int pageSize = 5;
+        int totalPages = (int) Math.ceil((double) vacancies.size() / pageSize);
+        if (page < 0) page = 0;
+        if (page >= totalPages) page = totalPages - 1;
+
+        int start = page * pageSize;
+        int end = Math.min(start + pageSize, vacancies.size());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("💼 <b>ВАКАНСИИ РАБОТОДАТЕЛЯ</b>\n");
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n\n");
+
+        List<Long> idsOnPage = new ArrayList<>();
+        for (int i = start; i < end; i++) {
+            JobVacancy v = vacancies.get(i);
+            String statusEmoji = Boolean.TRUE.equals(v.getIsActive()) ? "🟢" : "🔴";
+
+            sb.append(i + 1).append(". ").append(statusEmoji)
+                    .append(" <b>").append(safe(v.getTitle(), "Без названия")).append("</b>\n")
+                    .append("   💰 ").append(safe(v.getSalary(), "—"))
+                    .append(" | 🏢 ").append(safe(v.getCompanyName(), "—"))
+                    .append("\n\n");
+
+            if (v.getId() != null) idsOnPage.add(v.getId());
+        }
+
+        sb.append("━━━━━━━━━━━━━━━━━━━━\n");
+        sb.append("Стр. ").append(page + 1).append(" / ").append(totalPages);
+
+        return new Object[]{sb.toString(), idsOnPage, totalPages};
+    }
+
+    // ═══════════════════ APPLICATIONS / VACANCIES LISTS ═══════════════════
 
     @Transactional(readOnly = true)
     public List<String> getAllApplicationsFormatted() {
         List<String> result = new ArrayList<>();
         try {
-            List<JobApplication> apps = jobApplicationRepository.findAll();
-
-            for (JobApplication app : apps) {
+            for (JobApplication app : jobApplicationRepository.findAll()) {
                 String statusName = app.getStatus() != null ? app.getStatus().name() : "PENDING";
                 String statusEmoji;
                 switch (statusName) {
-                    case "ACCEPTED"  -> statusEmoji = "✅";
-                    case "REJECTED"  -> statusEmoji = "❌";
-                    case "VIEWED"    -> statusEmoji = "👁";
+                    case "ACCEPTED" -> statusEmoji = "✅";
+                    case "REJECTED" -> statusEmoji = "❌";
+                    case "VIEWED" -> statusEmoji = "👁";
                     case "INTERVIEW" -> statusEmoji = "📅";
                     case "CANCELLED" -> statusEmoji = "🚫";
-                    default          -> statusEmoji = "⏳";
+                    default -> statusEmoji = "⏳";
                 }
 
                 String seekerName = "—";
@@ -443,22 +504,14 @@ public class AdminService {
                     if (v != null) vacancyTitle = safe(v.getTitle(), "—");
                 } catch (Exception ignored) {}
 
-                String line = String.format(
+                result.add(String.format(
                         "%s <b>Заявка #%d</b>\n   📌 Вакансия: %s\n   👤 Кандидат: %s (ID: %d)\n   📞 Тел: %s\n   📊 Статус: %s\n   💬 Cover: %s",
-                        statusEmoji,
-                        app.getId(),
-                        vacancyTitle,
-                        seekerName,
-                        app.getJobSeekerId(),
-                        seekerPhone,
-                        statusName,
+                        statusEmoji, app.getId(), vacancyTitle, seekerName,
+                        app.getJobSeekerId(), seekerPhone, statusName,
                         safe(app.getCoverLetter(), "—")
-                );
-                result.add(line);
+                ));
             }
-        } catch (Exception e) {
-            log.warn("⚠️ Ошибка получения заявок: {}", e.getMessage());
-        }
+        } catch (Exception e) { log.warn("⚠️ Заявки: {}", e.getMessage()); }
         return result;
     }
 
@@ -468,24 +521,18 @@ public class AdminService {
         try {
             for (JobVacancy v : jobVacancyRepository.findAll()) {
                 String statusEmoji = Boolean.TRUE.equals(v.getIsActive()) ? "🟢" : "🔴";
-                String line = String.format(
+                result.add(String.format(
                         "%s <b>%s</b>\n   💰 ЗП: %s\n   🏢 Компания: %s\n   📂 Категория: %s\n   📞 Тел: %s",
-                        statusEmoji,
-                        safe(v.getTitle(), "Без названия"),
-                        safe(v.getSalary(), "—"),
-                        safe(v.getCompanyName(), "—"),
-                        safe(v.getCategory(), "—"),
-                        safe(v.getPhoneNumber(), "—")
-                );
-                result.add(line);
+                        statusEmoji, safe(v.getTitle(), "Без названия"),
+                        safe(v.getSalary(), "—"), safe(v.getCompanyName(), "—"),
+                        safe(v.getCategory(), "—"), safe(v.getPhoneNumber(), "—")
+                ));
             }
-        } catch (Exception e) {
-            log.warn("⚠️ Ошибка получения вакансий: {}", e.getMessage());
-        }
+        } catch (Exception e) { log.warn("⚠️ Вакансии: {}", e.getMessage()); }
         return result;
     }
 
-    // ─────────────────────── HELPERS ───────────────────────
+    // ═══════════════════ HELPERS ═══════════════════
 
     private static String safe(String value, String fallback) {
         return (value == null || value.isBlank()) ? fallback : value;
