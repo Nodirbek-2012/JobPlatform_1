@@ -1789,4 +1789,5 @@ public class JobSeekerHandlerImpl implements JobSeekerHandler {
     public ReplyKeyboard getCategoryInlineKeyboard(Optional<Object> empty) {
         return keyboardService.getCategoryInlineKeyboard(Optional.empty());
     }
+
 }

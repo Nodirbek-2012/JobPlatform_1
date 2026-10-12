@@ -1,6 +1,5 @@
 package uz.imaan.jobplatform.jobseeker.service.impl;
 
-
 import jakarta.annotation.PostConstruct;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -10,6 +9,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.prepost.PostAuthorize;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import uz.imaan.jobplatform.employer.job.JobVacancy;
+import uz.imaan.jobplatform.employer.job.JobVacancyRepository;
 import uz.imaan.jobplatform.feign.TestFeignClient;
 import uz.imaan.jobplatform.jobseeker.dto.*;
 import uz.imaan.jobplatform.jobseeker.entity.JobApplication;
@@ -24,31 +25,27 @@ import uz.imaan.jobplatform.jobseeker.service.interfaces.JobSeekerService;
 import java.util.List;
 import java.util.stream.Collectors;
 
-
 @Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
 public class JobSeekerServiceImpl implements JobSeekerService {
 
-
     private final JobSeekerProfileRepository profileRepository;
     private final JobApplicationRepository applicationRepository;
     private final ResumeRepository resumeRepository;
+    private final JobVacancyRepository jobVacancyRepository;   // ⬅️ ДОБАВЛЕНО
     private final JobSeekerMapper mapper;
     private final TestFeignClient testFeignClient;
-
-    // ============================================
-    // PROFIL SERVICES
-    // ============================================
-
 
     @PostConstruct
     void test() {
         System.err.println(testFeignClient.getData());
     }
 
-
+    // ============================================
+    // PROFIL SERVICES
+    // ============================================
 
     @Override
     @Transactional(readOnly = true)
@@ -95,7 +92,6 @@ public class JobSeekerServiceImpl implements JobSeekerService {
             throw new IllegalStateException("Siz ushbu ishga allaqachon ariza yuborgansiz!");
         }
 
-        // Aktiv rezyume mavjudligini tekshirish
         List<Resume> activeResumes = resumeRepository.findByJobSeekerIdAndIsActiveTrue(profile.getId());
         if (activeResumes.isEmpty()) {
             throw new IllegalStateException("Ariza yuborish uchun avval rezyume yarating!");
@@ -131,12 +127,12 @@ public class JobSeekerServiceImpl implements JobSeekerService {
         return applicationRepository.findByJobSeekerId(profile.getId())
                 .stream()
                 .map(application -> new JobApplicationDto(
-                        application.getId(),                      // DTO id (ariza ID)
-                        application.getJobId(),             // jobId (ish e'lonining ID si)
-                        profile.getId(),                          // jobSeekerId (yoki application.getJobSeeker().getId())
-                        application.getStatus().name(),           // status
-                        application.getCreatedAt(),               // appliedAt
-                        application.getCoverLetter()              // coverLetter
+                        application.getId(),
+                        application.getJobId(),
+                        profile.getId(),
+                        application.getStatus().name(),
+                        application.getCreatedAt(),
+                        application.getCoverLetter()
                 ))
                 .collect(Collectors.toList());
     }
@@ -195,15 +191,12 @@ public class JobSeekerServiceImpl implements JobSeekerService {
         JobSeekerProfile profile = profileRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Ishchi profili topilmadi: " + userId));
 
-        // Eski aktiv rezyumeni o'chirish
         List<Resume> activeResumes = resumeRepository.findByJobSeekerIdAndIsActiveTrue(profile.getId());
         for (Resume oldResume : activeResumes) {
             oldResume.setIsActive(false);
             resumeRepository.save(oldResume);
         }
 
-
-        // Yangi rezyume yaratish
         Resume resume = Resume.builder()
                 .jobSeekerId(profile.getId())
                 .title(request.title())
@@ -272,14 +265,12 @@ public class JobSeekerServiceImpl implements JobSeekerService {
         JobSeekerProfile profile = profileRepository.findByUserId(userId)
                 .orElseThrow(() -> new RuntimeException("Ishchi profili topilmadi: " + userId));
 
-        // Barcha rezyumelarni aktiv emas qilish
         List<Resume> allResumes = resumeRepository.findByJobSeekerId(profile.getId());
         for (Resume resume : allResumes) {
             resume.setIsActive(false);
             resumeRepository.save(resume);
         }
 
-        // Tanlangan rezyumeni aktiv qilish
         Resume resume = resumeRepository.findByIdAndJobSeekerId(resumeId, profile.getId())
                 .orElseThrow(() -> new RuntimeException("Rezyume topilmadi!"));
         resume.setIsActive(true);
@@ -347,6 +338,37 @@ public class JobSeekerServiceImpl implements JobSeekerService {
 
         profileRepository.save(profile);
         log.info("✅ Sozlamalar yangilandi: userId={}", userId);
+    }
+
+    // ============================================
+    // VACANCIES BY CATEGORY
+    // ============================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<JobVacancy> getVacanciesByCategory(String category) {
+        log.info("🔍 Vakansiyalarni kategoriya bo'yicha qidirish: {}", category);
+
+        if (category == null || category.isBlank()) {
+            return jobVacancyRepository.findByIsActiveTrue();   // ⬅️ ИСПРАВЛЕНО
+        }
+
+        // 1. Аниқ мос келиш
+        List<JobVacancy> jobs = jobVacancyRepository.findByCategoryIgnoreCase(category.trim());   // ⬅️ ИСПРАВЛЕНО
+
+        // 2. Қисм бўйича қидириш
+        if (jobs.isEmpty()) {
+            String firstWord = category.split("[\\s/,/]+")[0].trim();
+            jobs = jobVacancyRepository.searchByCategoryLike(firstWord);   // ⬅️ ИСПРАВЛЕНО
+        }
+
+        // 3. Ҳеч нарса топилмаса — барча фаол
+        if (jobs.isEmpty()) {
+            jobs = jobVacancyRepository.findByIsActiveTrue();   // ⬅️ ИСПРАВЛЕНО
+        }
+
+        log.info("✅ Topilgan vakansiyalar: {}", jobs.size());
+        return jobs;
     }
 
     // ============================================
