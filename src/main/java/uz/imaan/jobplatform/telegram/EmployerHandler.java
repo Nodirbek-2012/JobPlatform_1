@@ -96,13 +96,12 @@ public class EmployerHandler {
         log.info("🌐 [LANG READ] chatId={}, text={}, dbLang={}, profilePresent={}, state={}",
                 chatId, text, lang, profileOpt.isPresent(), currentState);
 
-        // ===== РЕГИСТРАЦИЯ: ВЫБОР ЯЗЫКА СНАЧАЛА (через INLINE) =====
+        // ===== РЕГИСТРАЦИЯ =====
         boolean notRegistered = profileOpt.isEmpty()
                 || profileOpt.get().getFullName() == null
                 || profileOpt.get().getFullName().isBlank();
 
         if (notRegistered) {
-
             boolean isContactOrMedia = message.hasContact()
                     || message.hasPhoto()
                     || message.hasDocument()
@@ -814,10 +813,6 @@ public class EmployerHandler {
             profile.setLanguage(newLang);
             employerRepository.saveAndFlush(profile);
 
-            String savedLang = employerRepository.findByEmployerChatId(chatId)
-                    .map(EmployerEntity::getLanguage).orElse("NULL");
-            log.info("🌐 [LANG SAVED] dbLang={}", savedLang);
-
             sendAnswerCallback(callbackQuery.getId(), null, false);
 
             if (isRegistration) {
@@ -912,23 +907,30 @@ public class EmployerHandler {
             return null;
         }
 
-        // ===== КАТЕГОРИЯ ВАКАНСИИ =====
+        // ============================================
+        // ⭐️ КАТЕГОРИЯ ВАКАНСИИ (с фиксом перевода)
+        // ============================================
         if (state == EmployerState.WAITING_FOR_CATEGORY && data.startsWith("emp_cat_")) {
-            String catValue = data.substring("emp_cat_".length());
-            if (catValue.equals("OTHER")) {
+            String catKey = data.substring("emp_cat_".length());
+
+            if (catKey.equals("OTHER")) {
                 states.put(chatId, EmployerState.WAITING_FOR_CUSTOM_CATEGORY);
                 return createMessage(chatId,
                         getText(lang, "📝 **Kategoriya nomi:**",
                                 "📝 **Название категории:**", "📝 **Category name:**"),
                         getCancelKeyboard(lang));
             }
-            if (catValue.equals("MENU")) {
+            if (catKey.equals("MENU")) {
                 states.put(chatId, EmployerState.MAIN_MENU);
                 return createMessage(chatId,
                         getText(lang, "📢 **Menyu:**", "📢 **Меню:**", "📢 **Menu:**"),
                         getMainMenuKeyboard(lang));
             }
-            draftData.get(chatId).put("category", catValue);
+
+            // ⭐️ Превращаем ключ в реальное название категории (на языке пользователя)
+            String categoryName = getCategoryNameByKey(catKey, lang);
+            draftData.get(chatId).put("category", categoryName);
+
             states.put(chatId, EmployerState.WAITING_FOR_JOB_TYPE);
             return createMessage(chatId,
                     getText(lang, "⏰ **Ish turi:**", "⏰ **Тип работы:**", "⏰ **Job type:**"),
@@ -1204,6 +1206,25 @@ public class EmployerHandler {
 
         sendAnswerCallback(callbackQuery.getId(), null, false);
         return null;
+    }
+
+    // ============================================
+    // ⭐️ ВСПОМОГАТЕЛЬНЫЙ: ключ → название категории (на языке пользователя)
+    // ============================================
+    private String getCategoryNameByKey(String key, String lang) {
+        return switch (key) {
+            case "it" -> getText(lang, "IT & Dasturlash", "IT & Программирование", "IT & Programming");
+            case "design" -> getText(lang, "Dizayn", "Дизайн", "Design");
+            case "construction" -> getText(lang, "Qurilish", "Строительство", "Construction");
+            case "driver" -> getText(lang, "Haydovchi / Kuryer", "Водитель / Курьер", "Driver / Courier");
+            case "education" -> getText(lang, "Ta'lim / Repetitor", "Образование / Репетитор", "Education / Tutor");
+            case "trade" -> getText(lang, "Savdo / Sotuvchi", "Продавец", "Sales / Seller");
+            case "cleaner" -> getText(lang, "Farrosh / Tozalash", "Уборщик", "Cleaner");
+            case "cook" -> getText(lang, "Pazanda / Oshpaz", "Повар", "Cook / Chef");
+            case "security" -> getText(lang, "Qorovul / Xavfsizlik", "Охрана", "Security");
+            case "courier" -> getText(lang, "Kuryer / Yetkazib berish", "Доставка", "Delivery / Courier");
+            default -> key;
+        };
     }
 
     // ============================================
@@ -1599,7 +1620,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // РЕГИСТРАЦИЯ (БЕЗ ПАСПОРТА!)
+    // РЕГИСТРАЦИЯ
     // ============================================
     private SendMessage handleRegistration(Long chatId, String text, Message message, String lang, Optional<EmployerEntity> profileOpt) {
         EmployerState regState = states.getOrDefault(chatId, EmployerState.WAITING_FOR_LANGUAGE);
@@ -1882,7 +1903,7 @@ public class EmployerHandler {
     }
 
     // ============================================
-    // ПРОФИЛЬ (БЕЗ ПАСПОРТА!)
+    // ПРОФИЛЬ
     // ============================================
     private SendMessage showProfile(Long chatId, Optional<EmployerEntity> profileOpt, String lang) {
         if (profileOpt.isEmpty() || profileOpt.get().getFullName() == null) {
@@ -2178,26 +2199,51 @@ public class EmployerHandler {
         return markup;
     }
 
+    // ============================================
+    // ⭐️ КАТЕГОРИИ — с переводом
+    // ============================================
     private InlineKeyboardMarkup getCategoryKeyboard(String lang) {
         InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-        List<String> categories = List.of(
-                "💻 IT & Dasturlash", "🎨 Dizayn",
-                "🏗️ Qurilish", "🚗 Haydovchi / Kuryer",
-                "📚 Ta'lim / Repetitor", "🛒 Savdo / Sotuvchi",
-                "🧹 Farrosh / Tozalash", "👨‍🍳 Pazanda / Oshpaz",
-                "🔒 Qorovul / Xavfsizlik", "📦 Kuryer / Yetkazib berish"
-        );
+        // Уникальные ключи для callback (одинаковые для всех языков)
+        String[] keys = {
+                "it", "design", "construction", "driver",
+                "education", "trade", "cleaner", "cook",
+                "security", "courier"
+        };
 
-        for (int i = 0; i < categories.size(); i += 2) {
+        // Метки для каждого языка
+        String[][] labels = {
+                // uz
+                {"💻 IT & Dasturlash", "🎨 Dizayn", "🏗️ Qurilish", "🚗 Haydovchi / Kuryer",
+                        "📚 Ta'lim / Repetitor", "🛒 Savdo / Sotuvchi", "🧹 Farrosh / Tozalash",
+                        "👨‍🍳 Pazanda / Oshpaz", "🔒 Qorovul / Xavfsizlik", "📦 Kuryer / Yetkazib berish"},
+                // ru
+                {"💻 IT & Программирование", "🎨 Дизайн", "🏗️ Строительство", "🚗 Водитель / Курьер",
+                        "📚 Образование / Репетитор", "🛒 Продавец", "🧹 Уборщик",
+                        "👨‍🍳 Повар", "🔒 Охрана", "📦 Доставка"},
+                // en
+                {"💻 IT & Programming", "🎨 Design", "🏗️ Construction", "🚗 Driver / Courier",
+                        "📚 Education / Tutor", "🛒 Sales / Seller", "🧹 Cleaner",
+                        "👨‍🍳 Cook / Chef", "🔒 Security", "📦 Delivery / Courier"}
+        };
+
+        String[] labelsForLang;
+        switch (lang) {
+            case "ru" -> labelsForLang = labels[1];
+            case "en" -> labelsForLang = labels[2];
+            default   -> labelsForLang = labels[0];
+        }
+
+        for (int i = 0; i < keys.length; i += 2) {
             InlineKeyboardButton btn1 = new InlineKeyboardButton();
-            btn1.setText(categories.get(i));
-            btn1.setCallbackData("emp_cat_" + categories.get(i));
+            btn1.setText(labelsForLang[i]);
+            btn1.setCallbackData("emp_cat_" + keys[i]);
 
             InlineKeyboardButton btn2 = new InlineKeyboardButton();
-            btn2.setText(categories.get(i + 1));
-            btn2.setCallbackData("emp_cat_" + categories.get(i + 1));
+            btn2.setText(labelsForLang[i + 1]);
+            btn2.setCallbackData("emp_cat_" + keys[i + 1]);
 
             rows.add(List.of(btn1, btn2));
         }
