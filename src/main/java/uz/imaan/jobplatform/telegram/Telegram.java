@@ -27,7 +27,6 @@ import uz.imaan.jobplatform.admin.service.AdminService;
 import uz.imaan.jobplatform.telegram.JobSeekerHandler.interfaces.JobSeekerHandler;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,17 +35,15 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class Telegram extends TelegramLongPollingBot {
 
-    public enum UserRole {
-        NONE,
-        EMPLOYER,
-        JOB_SEEKER
-    }
+    public enum UserRole { NONE, EMPLOYER, JOB_SEEKER }
 
     private final TelegramCallbackService telegramCallbackService;
     private final JobSeekerHandler jobSeekerHandler;
     private final EmployerHandler employerHandler;
 
     private final Map<Long, UserRole> userRoles = new ConcurrentHashMap<>();
+    // ⭐ Язык админа: "ru" или "uz"
+    private final Map<Long, String> adminLanguages = new ConcurrentHashMap<>();
 
     @Autowired
     @Lazy
@@ -124,13 +121,10 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
-    // ================================================
-    // ============ АДМИН-ЧАСТЬ =======================
-    // ================================================
+    // ═══════════════════ АДМИН ═══════════════════
 
     private boolean handleAdminCommand(long chatId, String text) {
         if (text == null || text.isBlank()) return false;
-
         String command = text.split("\\s+")[0].toLowerCase();
 
         if ("/admin".equals(command)) {
@@ -165,10 +159,7 @@ public class Telegram extends TelegramLongPollingBot {
             case "/block" -> { handleBlockCommand(chatId, text); return true; }
             case "/unblock" -> { handleUnblockCommand(chatId, text); return true; }
             case "/addadmin" -> { handleAddAdminCommand(chatId, text); return true; }
-            case "/start" -> {
-                adminMode.put(chatId, false);
-                return false;
-            }
+            case "/start" -> { adminMode.put(chatId, false); return false; }
             default -> { return false; }
         }
     }
@@ -270,7 +261,6 @@ public class Telegram extends TelegramLongPollingBot {
     public void sendApplicationsPage(long chatId, int page) {
         try {
             List<String> apps = adminService.getAllApplicationsFormatted();
-
             if (apps.isEmpty()) {
                 sendMessageSafe(chatId, "📩 Заявок пока нет.");
                 return;
@@ -324,7 +314,6 @@ public class Telegram extends TelegramLongPollingBot {
     public void sendVacanciesPage(long chatId, int page) {
         try {
             List<String> vacancies = adminService.getAllVacanciesFormatted();
-
             if (vacancies.isEmpty()) {
                 sendMessageSafe(chatId, "💼 Вакансий пока нет.");
                 return;
@@ -399,7 +388,7 @@ public class Telegram extends TelegramLongPollingBot {
             return true;
         }
 
-        if (data.startsWith("applications_page_")) {          // ⬅️ ДОБАВЛЕНО
+        if (data.startsWith("applications_page_")) {
             try {
                 int page = Integer.parseInt(data.substring("applications_page_".length()));
                 sendApplicationsPage(chatId, page);
@@ -407,7 +396,7 @@ public class Telegram extends TelegramLongPollingBot {
             return true;
         }
 
-        if (data.startsWith("vacancies_page_")) {             // ⬅️ ДОБАВЛЕНО
+        if (data.startsWith("vacancies_page_")) {
             try {
                 int page = Integer.parseInt(data.substring("vacancies_page_".length()));
                 sendVacanciesPage(chatId, page);
@@ -415,7 +404,7 @@ public class Telegram extends TelegramLongPollingBot {
             return true;
         }
 
-        // ===== Детали =====
+        // ===== Детали рабочего =====
         if (data.startsWith("worker_detail_")) {
             try {
                 Long workerId = Long.parseLong(data.substring("worker_detail_".length()));
@@ -430,6 +419,7 @@ public class Telegram extends TelegramLongPollingBot {
             return true;
         }
 
+        // ===== Детали работодателя =====
         if (data.startsWith("employer_detail_")) {
             try {
                 Long employerId = Long.parseLong(data.substring("employer_detail_".length()));
@@ -437,16 +427,10 @@ public class Telegram extends TelegramLongPollingBot {
 
                 InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
                 List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-
-                rows.add(List.of(
-                        button("💼 Посмотреть вакансии", "employer_vacancies_" + employerId)
-                ));
-                rows.add(List.of(
-                        button("⬅️ Назад к списку", "admin_employers")
-                ));
+                rows.add(List.of(button("💼 Посмотреть вакансии", "employer_vacancies_" + employerId)));
+                rows.add(List.of(button("⬅️ Назад к списку", "admin_employers")));
                 markup.setKeyboard(rows);
 
-                // ⬇️⬇️⬇️ ЭТОГО НЕ ХВАТАЛО
                 SendMessage message = SendMessage.builder()
                         .chatId(String.valueOf(chatId))
                         .text(details)
@@ -454,38 +438,31 @@ public class Telegram extends TelegramLongPollingBot {
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
-                // ⬆️⬆️⬆️
-
             } catch (Exception e) { log.error("❌ employer_detail error: {}", e.getMessage(), e); }
             return true;
         }
-// ===== Вакансии конкретного работодателя — пагинация =====
+
+        // ===== Вакансии конкретного работодателя =====
         if (data.startsWith("employer_vacancies_page_")) {
             try {
-                // формат: employer_vacancies_page_<employerId>_<page>
                 String rest = data.substring("employer_vacancies_page_".length());
                 String[] parts = rest.split("_");
                 Long employerId = Long.parseLong(parts[0]);
                 int page = Integer.parseInt(parts[1]);
                 sendEmployerVacanciesPage(chatId, employerId, page);
-            } catch (Exception e) {
-                log.error("❌ employer_vacancies_page error: {}", e.getMessage(), e);
-            }
+            } catch (Exception e) { log.error("❌ employer_vacancies_page error: {}", e.getMessage(), e); }
             return true;
         }
 
-// ===== Открыть список вакансий работодателя =====
         if (data.startsWith("employer_vacancies_")) {
             try {
                 Long employerId = Long.parseLong(data.substring("employer_vacancies_".length()));
                 sendEmployerVacanciesPage(chatId, employerId, 0);
-            } catch (Exception e) {
-                log.error("❌ employer_vacancies error: {}", e.getMessage(), e);
-            }
+            } catch (Exception e) { log.error("❌ employer_vacancies error: {}", e.getMessage(), e); }
             return true;
         }
 
-// ===== Детали вакансии =====
+        // ===== Детали вакансии =====
         if (data.startsWith("vacancy_detail_")) {
             try {
                 Long vacancyId = Long.parseLong(data.substring("vacancy_detail_".length()));
@@ -503,32 +480,23 @@ public class Telegram extends TelegramLongPollingBot {
                         .replyMarkup(markup)
                         .build();
                 executeMessage(message);
-            } catch (Exception e) {
-                log.error("❌ vacancy_detail error: {}", e.getMessage(), e);
-
-            }
+            } catch (Exception e) { log.error("❌ vacancy_detail error: {}", e.getMessage(), e); }
             return true;
         }
-        // ===== Назад к списку вакансий работодателя =====
+
         if (data.startsWith("back_to_vacancies_")) {
             try {
-                String rest = data.substring("back_to_vacancies_".length());
-                // Находим employerId по vacancyId
-                Long vacancyId = Long.parseLong(rest);
-                // Простой возврат в общий список вакансий — либо через БД находим employerChatId
-                // Пока делаем "назад" в список всех вакансий
                 sendVacanciesPage(chatId, 0);
-            } catch (Exception e) {
-                log.error("❌ back_to_vacancies error: {}", e.getMessage(), e);
-            }
+            } catch (Exception e) { log.error("❌ back_to_vacancies error: {}", e.getMessage(), e); }
             return true;
         }
+
         // ===== Кнопки меню =====
         switch (data) {
             case "admin_workers" -> { sendWorkersPage(chatId, 0); return true; }
             case "admin_employers" -> { sendEmployersPage(chatId, 0); return true; }
-            case "admin_applications" -> { sendApplicationsPage(chatId, 0); return true; }   // ⬅️ ДОБАВЛЕНО
-            case "admin_vacancies" -> { sendVacanciesPage(chatId, 0); return true; }         // ⬅️ ДОБАВЛЕНО
+            case "admin_applications" -> { sendApplicationsPage(chatId, 0); return true; }
+            case "admin_vacancies" -> { sendVacanciesPage(chatId, 0); return true; }
             case "admin_refresh" -> { sendAdminMenu(chatId); return true; }
             case "admin_find_by_tg_id" -> {
                 sendMessageSafe(chatId, "🔍 Отправьте: /info 123456789");
@@ -540,20 +508,24 @@ public class Telegram extends TelegramLongPollingBot {
                 return true;
             }
             case "change_language" -> { sendLanguageMenuAdmin(chatId); return true; }
+
+            // ⭐ ГЛАВНОЕ — СОХРАНЯЕМ ЯЗЫК
             case "lang_ru" -> {
+                adminLanguages.put(chatId, "ru");
                 sendMessageSafe(chatId, "✅ Язык изменён на Русский!");
                 sendAdminMenu(chatId);
                 return true;
             }
             case "lang_uz" -> {
+                adminLanguages.put(chatId, "uz");
                 sendMessageSafe(chatId, "✅ Til O'zbekchaga o'zgartirildi!");
                 sendAdminMenu(chatId);
                 return true;
             }
+
             case "admin_categories" -> { sendCategoryStats(chatId); return true; }
             case "noop" -> { return true; }
             default -> { return false; }
-          // пока не используем
         }
     }
 
@@ -565,67 +537,97 @@ public class Telegram extends TelegramLongPollingBot {
         try {
             AdminStatsDto stats = adminService.getDetailedStats();
 
+            // ⭐ Определяем язык админа
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             StringBuilder menuText = new StringBuilder();
-            menuText.append("⚙️ Панель администратора JobPlatform\n\n");
 
-            menuText.append("👥 ПОЛЬЗОВАТЕЛИ\n")
-                    .append(" ├ Админов: ").append(stats.getTotalAdmins()).append("\n")
-                    .append(" ├ Соискателей: ").append(stats.getTotalWorkers()).append("\n")
-                    .append(" ├ Работодателей: ").append(stats.getTotalEmployers()).append("\n")
-                    .append(" └ Всего: ").append(stats.getTotalUsers()).append("\n\n");
-
-            menuText.append("💼 ВАКАНСИИ\n")
-                    .append(" ├ Всего: ").append(stats.getTotalVacancies()).append("\n")
-                    .append(" ├ Активных: ").append(stats.getActiveJobs()).append("\n")
-                    .append(" └ Заполненных: ").append(stats.getFilledVacancies()).append("\n\n");
-
-            menuText.append("📩 ЗАЯВКИ\n")
-                    .append(" ├ Всего: ").append(stats.getTotalApplications()).append("\n")
-                    .append(" ├ В ожидании: ").append(stats.getPendingApplications()).append("\n")
-                    .append(" ├ Принято: ").append(stats.getAcceptedApplications()).append("\n")
-                    .append(" └ Отклонено: ").append(stats.getRejectedApplications()).append("\n\n");
-
-            menuText.append("💳 КАРТЫ И ФИНАНСЫ\n")
-                    .append(" ├ Карт: ").append(stats.getTotalBankCards())
-                    .append(" (активных: ").append(stats.getActiveBankCards()).append(")\n")
-                    .append(" └ Баланс: ")
-                    .append(stats.getTotalWalletBalance() != null ? stats.getTotalWalletBalance().toPlainString() : "0")
-                    .append(" сум\n\n");
-
-            menuText.append("⭐ ОТЗЫВЫ\n")
-                    .append(" ├ Всего: ").append(stats.getTotalReviews()).append("\n")
-                    .append(" └ Средний рейтинг: ")
-                    .append(String.format("%.2f", stats.getAverageRating())).append("\n\n");
-
-            menuText.append("📢 ПОДПИСКИ\n")
-                    .append(" └ Всего: ").append(stats.getTotalSubscriptions()).append("\n\n");
-
-            menuText.append("📂 КАТЕГОРИИ\n")
-                    .append(" └ Всего: ").append(stats.getTotalCategories()).append("\n\n");
-
-            menuText.append("Для выхода: /exit_admin\nВыберите действие:");
+            if (uz) {
+                // ===== УЗБЕКСКИЙ =====
+                menuText.append("⚙️ JobPlatform administrator paneli\n\n");
+                menuText.append("👥 FOYDALANUVCHILAR\n")
+                        .append(" ├ Adminlar: ").append(stats.getTotalAdmins()).append("\n")
+                        .append(" ├ Ish izlovchilar: ").append(stats.getTotalWorkers()).append("\n")
+                        .append(" ├ Ish beruvchilar: ").append(stats.getTotalEmployers()).append("\n")
+                        .append(" └ Jami: ").append(stats.getTotalUsers()).append("\n\n");
+                menuText.append("💼 VAKANSIYALAR\n")
+                        .append(" ├ Jami: ").append(stats.getTotalVacancies()).append("\n")
+                        .append(" ├ Faol: ").append(stats.getActiveJobs()).append("\n")
+                        .append(" └ To'ldirilgan: ").append(stats.getFilledVacancies()).append("\n\n");
+                menuText.append("📩 ARIZALAR\n")
+                        .append(" ├ Jami: ").append(stats.getTotalApplications()).append("\n")
+                        .append(" ├ Kutilmoqda: ").append(stats.getPendingApplications()).append("\n")
+                        .append(" ├ Qabul qilindi: ").append(stats.getAcceptedApplications()).append("\n")
+                        .append(" └ Rad etildi: ").append(stats.getRejectedApplications()).append("\n\n");
+                menuText.append("💳 KARTALAR VA MOLIYA\n")
+                        .append(" ├ Kartalar: ").append(stats.getTotalBankCards())
+                        .append(" (faol: ").append(stats.getActiveBankCards()).append(")\n")
+                        .append(" └ Balans: ")
+                        .append(stats.getTotalWalletBalance() != null ? stats.getTotalWalletBalance().toPlainString() : "0")
+                        .append(" so'm\n\n");
+                menuText.append("⭐ SHARHLAR\n")
+                        .append(" ├ Jami: ").append(stats.getTotalReviews()).append("\n")
+                        .append(" └ O'rtacha reyting: ").append(String.format("%.2f", stats.getAverageRating())).append("\n\n");
+                menuText.append("📢 OBUNALAR\n")
+                        .append(" └ Jami: ").append(stats.getTotalSubscriptions()).append("\n\n");
+                menuText.append("📂 KATEGORIYALAR\n")
+                        .append(" └ Jami: ").append(stats.getTotalCategories()).append("\n\n");
+                menuText.append("Chiqish: /exit_admin\nAmalni tanlang:");
+            } else {
+                // ===== РУССКИЙ =====
+                menuText.append("⚙️ Панель администратора JobPlatform\n\n");
+                menuText.append("👥 ПОЛЬЗОВАТЕЛИ\n")
+                        .append(" ├ Админов: ").append(stats.getTotalAdmins()).append("\n")
+                        .append(" ├ Соискателей: ").append(stats.getTotalWorkers()).append("\n")
+                        .append(" ├ Работодателей: ").append(stats.getTotalEmployers()).append("\n")
+                        .append(" └ Всего: ").append(stats.getTotalUsers()).append("\n\n");
+                menuText.append("💼 ВАКАНСИИ\n")
+                        .append(" ├ Всего: ").append(stats.getTotalVacancies()).append("\n")
+                        .append(" ├ Активных: ").append(stats.getActiveJobs()).append("\n")
+                        .append(" └ Заполненных: ").append(stats.getFilledVacancies()).append("\n\n");
+                menuText.append("📩 ЗАЯВКИ\n")
+                        .append(" ├ Всего: ").append(stats.getTotalApplications()).append("\n")
+                        .append(" ├ В ожидании: ").append(stats.getPendingApplications()).append("\n")
+                        .append(" ├ Принято: ").append(stats.getAcceptedApplications()).append("\n")
+                        .append(" └ Отклонено: ").append(stats.getRejectedApplications()).append("\n\n");
+                menuText.append("💳 КАРТЫ И ФИНАНСЫ\n")
+                        .append(" ├ Карт: ").append(stats.getTotalBankCards())
+                        .append(" (активных: ").append(stats.getActiveBankCards()).append(")\n")
+                        .append(" └ Баланс: ")
+                        .append(stats.getTotalWalletBalance() != null ? stats.getTotalWalletBalance().toPlainString() : "0")
+                        .append(" сум\n\n");
+                menuText.append("⭐ ОТЗЫВЫ\n")
+                        .append(" ├ Всего: ").append(stats.getTotalReviews()).append("\n")
+                        .append(" └ Средний рейтинг: ").append(String.format("%.2f", stats.getAverageRating())).append("\n\n");
+                menuText.append("📢 ПОДПИСКИ\n")
+                        .append(" └ Всего: ").append(stats.getTotalSubscriptions()).append("\n\n");
+                menuText.append("📂 КАТЕГОРИИ\n")
+                        .append(" └ Всего: ").append(stats.getTotalCategories()).append("\n\n");
+                menuText.append("Для выхода: /exit_admin\nВыберите действие:");
+            }
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
             rows.add(List.of(
-                    button("👷 Рабочие", "admin_workers"),
-                    button("🏢 Работодатели", "admin_employers")
+                    button(uz ? "👷 Ishchilar" : "👷 Рабочие", "admin_workers"),
+                    button(uz ? "🏢 Ish beruvchilar" : "🏢 Работодатели", "admin_employers")
             ));
             rows.add(List.of(
-                    button("📩 Заявки", "admin_applications"),
-                    button("💼 Вакансии", "admin_vacancies")
+                    button(uz ? "📩 Arizalar" : "📩 Заявки", "admin_applications"),
+                    button(uz ? "💼 Vakansiyalar" : "💼 Вакансии", "admin_vacancies")
             ));
             rows.add(List.of(
-                    button("📂 Категории", "admin_categories"),
-                    button("🔍 Инфо по TG ID", "admin_find_by_tg_id")
+                    button(uz ? "📂 Kategoriyalar" : "📂 Категории", "admin_categories"),
+                    button(uz ? "🔍 TG ID bo'yicha" : "🔍 Инфо по TG ID", "admin_find_by_tg_id")
             ));
             rows.add(List.of(
-                    button("🔄 Обновить", "admin_refresh"),
-                    button("🌐 Язык", "change_language")
+                    button(uz ? "🔄 Yangilash" : "🔄 Обновить", "admin_refresh"),
+                    button(uz ? "🌐 Til" : "🌐 Язык", "change_language")
             ));
             rows.add(List.of(
-                    button("🚪 Выйти из админ-режима", "admin_exit")
+                    button(uz ? "🚪 Admin rejimidan chiqish" : "🚪 Выйти из админ-режима", "admin_exit")
             ));
             markup.setKeyboard(rows);
 
@@ -638,7 +640,7 @@ public class Telegram extends TelegramLongPollingBot {
 
         } catch (Exception e) {
             log.error("❌ sendAdminMenu error: {}", e.getMessage(), e);
-            sendMessageSafe(chatId, "⚠️ Ошибка при открытии админ-меню: " + e.getMessage());
+            sendMessageSafe(chatId, "⚠️ Xatolik / Ошибка: " + e.getMessage());
         }
     }
 
@@ -784,7 +786,6 @@ public class Telegram extends TelegramLongPollingBot {
                 .build());
     }
 
-    // ============ БЕЗОПАСНАЯ ОТПРАВКА ============
     public void sendMessageSafe(long chatId, String text) {
         try {
             executeMessage(SendMessage.builder()
@@ -796,9 +797,6 @@ public class Telegram extends TelegramLongPollingBot {
         }
     }
 
-    // ================================================
-    // PUBLIC METODLAR
-    // ================================================
     public void executeMessage(SendMessage message) {
         try {
             execute(message);
@@ -851,6 +849,7 @@ public class Telegram extends TelegramLongPollingBot {
         message.setReplyMarkup(keyboardMarkup);
         executeMessage(message);
     }
+
     public void sendEmployerVacanciesPage(long chatId, Long employerId, int page) {
         try {
             Object[] data = adminService.getEmployerVacanciesPageData(employerId, page);
@@ -865,19 +864,14 @@ public class Telegram extends TelegramLongPollingBot {
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
 
-            // Кнопки-номера для каждой вакансии
             if (!idsOnPage.isEmpty()) {
                 List<InlineKeyboardButton> numbersRow = new ArrayList<>();
                 for (int i = 0; i < idsOnPage.size(); i++) {
-                    numbersRow.add(button(
-                            String.valueOf(i + 1),
-                            "vacancy_detail_" + idsOnPage.get(i)
-                    ));
+                    numbersRow.add(button(String.valueOf(i + 1), "vacancy_detail_" + idsOnPage.get(i)));
                 }
                 rows.add(numbersRow);
             }
 
-            // Пагинация
             if (totalPages > 1) {
                 List<InlineKeyboardButton> navRow = new ArrayList<>();
                 if (page > 0)
@@ -888,10 +882,7 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            // Кнопка назад к профилю
-            rows.add(List.of(
-                    button("⬅️ Назад к работодателю", "employer_detail_" + employerId)
-            ));
+            rows.add(List.of(button("⬅️ Назад к работодателю", "employer_detail_" + employerId)));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
@@ -907,5 +898,4 @@ public class Telegram extends TelegramLongPollingBot {
             sendMessageSafe(chatId, "⚠️ Ошибка: " + e.getMessage());
         }
     }
-
 }
