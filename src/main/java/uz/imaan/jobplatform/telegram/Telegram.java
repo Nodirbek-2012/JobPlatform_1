@@ -166,6 +166,9 @@ public class Telegram extends TelegramLongPollingBot {
 
     public void sendWorkersPage(long chatId, int page) {
         try {
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             Object[] data = adminService.getWorkersListPageData(page);
             String content = (String) data[0];
             @SuppressWarnings("unchecked")
@@ -174,6 +177,12 @@ public class Telegram extends TelegramLongPollingBot {
 
             if (page < 0) page = 0;
             if (page >= totalPages) page = totalPages - 1;
+
+            // Локализуем заголовок
+            if (uz) {
+                content = content.replace("👷 Список всех рабочих:", "👷 Barcha ishchilar ro'yxati:");
+                content = content.replace("Без имени", "Ismsiz");
+            }
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -194,7 +203,10 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            rows.add(List.of(button("⬅️ Назад в админ-меню", "admin_refresh")));
+            rows.add(List.of(button(
+                    uz ? "⬅️ Admin menyusiga qaytish" : "⬅️ Назад в админ-меню",
+                    "admin_refresh"
+            )));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
@@ -213,6 +225,9 @@ public class Telegram extends TelegramLongPollingBot {
 
     public void sendEmployersPage(long chatId, int page) {
         try {
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             Object[] data = adminService.getEmployersListPageData(page);
             String content = (String) data[0];
             @SuppressWarnings("unchecked")
@@ -221,6 +236,12 @@ public class Telegram extends TelegramLongPollingBot {
 
             if (page < 0) page = 0;
             if (page >= totalPages) page = totalPages - 1;
+
+            if (uz) {
+                content = content.replace("🏢 Список всех работодателей:", "🏢 Barcha ish beruvchilar ro'yxati:");
+                content = content.replace("Без названия", "Nomsiz");
+                content = content.replace("Паспорт:", "Pasport:");
+            }
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -241,7 +262,10 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            rows.add(List.of(button("⬅️ Назад в админ-меню", "admin_refresh")));
+            rows.add(List.of(button(
+                    uz ? "⬅️ Admin menyusiga qaytish" : "⬅️ Назад в админ-меню",
+                    "admin_refresh"
+            )));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
@@ -260,14 +284,17 @@ public class Telegram extends TelegramLongPollingBot {
 
     public void sendApplicationsPage(long chatId, int page) {
         try {
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             List<String> apps = adminService.getAllApplicationsFormatted();
             if (apps.isEmpty()) {
-                sendMessageSafe(chatId, "📩 Заявок пока нет.");
+                sendMessageSafe(chatId, uz ? "📩 Hozircha arizalar yo'q." : "📩 Заявок пока нет.");
                 return;
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("📩 <b>ВСЕ ЗАЯВКИ</b>\n");
+            sb.append(uz ? "📩 <b>BARCHA ARIZALAR</b>\n" : "📩 <b>ВСЕ ЗАЯВКИ</b>\n");
             sb.append("━━━━━━━━━━━━━━━━━━━━\n\n");
 
             int pageSize = 10;
@@ -279,10 +306,19 @@ public class Telegram extends TelegramLongPollingBot {
             int end = Math.min(start + pageSize, apps.size());
 
             for (int i = start; i < end; i++) {
-                sb.append(i + 1).append(". ").append(apps.get(i)).append("\n\n");
+                String line = apps.get(i);
+                if (uz) {
+                    line = line.replace("Заявка", "Ariza")
+                            .replace("Вакансия:", "Vakansiya:")
+                            .replace("Кандидат:", "Nomzod:")
+                            .replace("Тел:", "Tel:")
+                            .replace("Статус:", "Holat:")
+                            .replace("Cover:", "Izoh:");
+                }
+                sb.append(i + 1).append(". ").append(line).append("\n\n");
             }
             sb.append("━━━━━━━━━━━━━━━━━━━━\n");
-            sb.append("Стр. ").append(page + 1).append(" / ").append(totalPages);
+            sb.append(uz ? "Sahifa " : "Стр. ").append(page + 1).append(" / ").append(totalPages);
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -294,7 +330,10 @@ public class Telegram extends TelegramLongPollingBot {
                 if (page < totalPages - 1) navRow.add(button("➡️", "applications_page_" + (page + 1)));
                 rows.add(navRow);
             }
-            rows.add(List.of(button("⬅️ Назад в админ-меню", "admin_refresh")));
+            rows.add(List.of(button(
+                    uz ? "⬅️ Admin menyusiga qaytish" : "⬅️ Назад в админ-меню",
+                    "admin_refresh"
+            )));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
@@ -313,14 +352,17 @@ public class Telegram extends TelegramLongPollingBot {
 
     public void sendVacanciesPage(long chatId, int page) {
         try {
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             List<String> vacancies = adminService.getAllVacanciesFormatted();
             if (vacancies.isEmpty()) {
-                sendMessageSafe(chatId, "💼 Вакансий пока нет.");
+                sendMessageSafe(chatId, uz ? "💼 Hozircha vakansiyalar yo'q." : "💼 Вакансий пока нет.");
                 return;
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.append("💼 <b>ВСЕ ВАКАНСИИ</b>\n");
+            sb.append(uz ? "💼 <b>BARCHA VAKANSIYALAR</b>\n" : "💼 <b>ВСЕ ВАКАНСИИ</b>\n");
             sb.append("━━━━━━━━━━━━━━━━━━━━\n\n");
 
             int pageSize = 10;
@@ -332,10 +374,18 @@ public class Telegram extends TelegramLongPollingBot {
             int end = Math.min(start + pageSize, vacancies.size());
 
             for (int i = start; i < end; i++) {
-                sb.append(i + 1).append(". ").append(vacancies.get(i)).append("\n\n");
+                String line = vacancies.get(i);
+                if (uz) {
+                    line = line.replace("ЗП:", "Maosh:")
+                            .replace("Компания:", "Kompaniya:")
+                            .replace("Категория:", "Kategoriya:")
+                            .replace("Тел:", "Tel:")
+                            .replace("Без названия", "Nomsiz");
+                }
+                sb.append(i + 1).append(". ").append(line).append("\n\n");
             }
             sb.append("━━━━━━━━━━━━━━━━━━━━\n");
-            sb.append("Стр. ").append(page + 1).append(" / ").append(totalPages);
+            sb.append(uz ? "Sahifa " : "Стр. ").append(page + 1).append(" / ").append(totalPages);
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -347,7 +397,10 @@ public class Telegram extends TelegramLongPollingBot {
                 if (page < totalPages - 1) navRow.add(button("➡️", "vacancies_page_" + (page + 1)));
                 rows.add(navRow);
             }
-            rows.add(List.of(button("⬅️ Назад в админ-меню", "admin_refresh")));
+            rows.add(List.of(button(
+                    uz ? "⬅️ Admin menyusiga qaytish" : "⬅️ Назад в админ-меню",
+                    "admin_refresh"
+            )));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
@@ -852,6 +905,9 @@ public class Telegram extends TelegramLongPollingBot {
 
     public void sendEmployerVacanciesPage(long chatId, Long employerId, int page) {
         try {
+            String lang = adminLanguages.getOrDefault(chatId, "ru");
+            boolean uz = "uz".equals(lang);
+
             Object[] data = adminService.getEmployerVacanciesPageData(employerId, page);
             String content = (String) data[0];
             @SuppressWarnings("unchecked")
@@ -860,6 +916,13 @@ public class Telegram extends TelegramLongPollingBot {
 
             if (page < 0) page = 0;
             if (page >= totalPages) page = totalPages - 1;
+
+            if (uz) {
+                content = content.replace("ВАКАНСИИ РАБОТОДАТЕЛЯ", "ISH BERUVCHI VAKANSIYALARI");
+                content = content.replace("Стр.", "Sahifa");
+                content = content.replace("У этого работодателя пока нет вакансий.",
+                        "Bu ish beruvchining hozircha vakansiyalari yo'q.");
+            }
 
             InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
             List<List<InlineKeyboardButton>> rows = new ArrayList<>();
@@ -882,7 +945,10 @@ public class Telegram extends TelegramLongPollingBot {
                 rows.add(navRow);
             }
 
-            rows.add(List.of(button("⬅️ Назад к работодателю", "employer_detail_" + employerId)));
+            rows.add(List.of(button(
+                    uz ? "⬅️ Ish beruvchiga qaytish" : "⬅️ Назад к работодателю",
+                    "employer_detail_" + employerId
+            )));
             markup.setKeyboard(rows);
 
             SendMessage message = SendMessage.builder()
